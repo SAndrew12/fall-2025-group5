@@ -1,20 +1,143 @@
-# fall-2025-group5
-{
-  "Version": "1",
-  "Year": "2025",
-  "Semester": "Fall",
-  "project_name": "Violent Extremist Organization Classification in Afghanistan Using Machine Learning",
-  "Objective": "\n            This project develops supervised machine learning models to classify unattributed or ambiguously attributed violent\n            events in Afghanistan among three organizations: **Taliban**, **al-Qaeda (AQ)**, and **ISIS-K** using ACLED data\n            for **2015\u20132021** (through the U.S. withdrawal).\n\n            **Goals**\n            - Build a reproducible pipeline for data ingestion, cleaning, feature engineering, modeling, and evaluation.\n            - Compare text-only, spatiotemporal-only, and multimodal (text + structured) models.\n            - Prioritize imbalanced-aware metrics (macro-F1, per-class PR-AUC) and model calibration for decision usefulness.\n            - Deliver a transparent classifier with interpretable outputs (feature importances/SHAP) and robust temporal validation.\n\n            **Planned Phases**\n            1. **Preparation & EDA**: schema audit; class distribution; leakage checks; split design (train:2015\u20132019, test:2020\u20132021).\n            2. **Feature Engineering**: textual (ACLED `notes`), spatiotemporal, operational signatures, and conflict-phase markers.\n            3. **Training**: baselines (logistic regression, linear SVM), tree ensembles (RF/XGBoost), and text encoders (TF-IDF + linear, BERT).\n            4. **Validation**: grouped/temporal CV; calibration; ablations; province/period generalization checks.\n            5. **Classification & Reporting**: apply to unattributed/ambiguous records; quantify uncertainty; README and docs.\n            ",
-  "Dataset": "\n            **Primary Dataset: ACLED (Armed Conflict Location & Event Data), Afghanistan 2015\u20132021**\n            - Key fields: `event_date`, `event_type`, `sub_event_type`, `actor1`, `assoc_actor_1`, `actor2`, `assoc_actor_2`,\n              `admin1/province`, `admin2/district` (if available), `latitude`, `longitude`, `fatalities`, `notes`, `source`,\n              `timestamp`.\n            - Target classes (supervised): **Taliban**, **AQ**, **ISIS-K** (derived from actors/associations and curated rules).\n            - Prediction target: organization label for unattributed/ambiguous events.\n\n            **Preprocessing & Label Policy**\n            - Curate labels from `actor*`/`assoc_actor*` using conservative rules; exclude mixed/coalition cases from training\n              and hold out for analysis.\n            - Deduplicate near-identical events (same date/loc/actors/notes with minor source diffs).\n            - Remove post-event metadata that could leak attribution (e.g., fields populated after publication if present).\n\n            **Engineered Features**\n            - **Textual (from `notes`)**: TF-IDF (uni/bi-grams), keyphrase flags (pledges, sectarian terms), BERT embeddings.\n            - **Spatiotemporal**: province/district one-hots; lat/long; H3 cell; distance to prior class centroids; month/DoW;\n              season; Ramadan indicator; pre/post milestones (e.g., 2019\u20132020 ISIS-K surges, 2020 Doha Agreement).\n            - **Operational**: `event_type`, `sub_event_type`, weapon/IED proxies, target type cues, lethality buckets,\n              repeat-offense features (class-wise moving rates in a cell/time window).\n            ",
-  "Rationale": "\n            Accurate attribution of violent events enables trend analysis, risk mapping, and policy evaluation. However, field\n            reports can be noisy, incomplete, or delayed, yielding unattributed records in ACLED. A principled, transparent\n            classifier can:\n            - Provide **consistent** attribution hypotheses with calibrated uncertainty.\n            - Illuminate **distinct operational signatures** across Taliban, AQ, and ISIS-K.\n            - Support analysts with **interpretable** evidence rather than opaque scores.\n\n            **Research Gaps**\n            - Limited open, reproducible baselines for **multi-class militant attribution** on ACLED.\n            - Under-explored **multimodal fusion** of text and spatiotemporal signals for attribution.\n            - Scarce evaluations using **temporal generalization** (train past \u2192 test future) and **geographic shift** tests.\n            ",
-  "Approach": "\n            **Methodology Overview**\n            - Reproducible pipeline (Make/Poetry/conda + DVC optional) with data versioning and config-driven experiments.\n            - Careful **train/validation/test** scheme to simulate deployment:\n              * Train/Val: 2015\u20132019 (nested temporal CV with grouped splits by time/province).\n              * Test: 2020\u20132021 (out-of-time evaluation).\n\n            **Models**\n            - **Baselines**: Majority, stratified, and simple rules (last-seen cell class).\n            - **Linear**: TF-IDF + Logistic Regression / Linear SVM (strong text baselines).\n            - **Tree-based**: Random Forest, XGBoost on structured + TF-IDF SVD features.\n            - **Neural (text)**: BERT family (e.g., `bert-base-uncased`) fine-tuned on `notes`.\n            - **Fusion**:\n              * Early fusion: concat BERT/SIF embeddings with structured features.\n              * Late fusion: probability averaging or stacking with a meta-learner.\n\n            **Evaluation**\n            - Metrics: macro-F1, per-class F1, macro PR-AUC, calibration (ECE/Brier), confusion matrices, cost-sensitive\n              variants; confidence intervals via bootstrap.\n            - Robustness: province hold-out tests; conflict-phase slices (pre/post Doha); sensitivity to missing text.\n            - Explainability: SHAP for tree/linear; attention/feature ablations for BERT; exemplar retrieval.\n\n            **Deliverables**\n            - GitHub README with methodology, results tables, and plots (auto-generated).\n            - Reproducible scripts: `prepare.py`, `train.py`, `evaluate.py`, `inference.py`.\n            - Model cards + ethical use statement.\n            ",
-  "Timeline": "\n            **Week 1**: Acquire ACLED subset; license/compliance check; EDA; define label policy & splits.\n            **Week 2**: Implement cleaning, deduping, leakage checks; first features (spatiotemporal + TF-IDF).\n            **Week 3**: Baseline/linear models; imbalanced handling (class weights, focal loss or threshold tuning).\n            **Week 4**: Tree ensembles with structured + reduced TF-IDF (SVD); calibration.\n            **Week 5**: BERT text models; early/late fusion; hyperparameter sweeps (small, budget-aware).\n            **Week 6**: Robustness (temporal/province hold-outs), ablations, SHAP/explanations; error analysis.\n            **Week 7**: Apply to unattributed events with uncertainty; draft figures/tables; README auto-gen polish.\n            **Week 8**: Final write-up, model card, ethical statement, packaging & release.\n            ",
-  "Expected Number Students": "\n            **1 student** with:\n            - **ML/NLP**: Scikit-learn, PyTorch/TF, text preprocessing, evaluation with imbalanced data.\n            - **Geospatial/temporal**: feature design, binning, leakage avoidance, shift-aware validation.\n            - **Software**: Python packaging, experiment tracking, visualization.\n            ",
-  "Research Contributions": "\n            - **Benchmark**: First open, reproducible baselines for Taliban vs AQ vs ISIS-K attribution on ACLED (2015\u20132021).\n            - **Multimodal Fusion**: Evidence on combining text with spatiotemporal/operational features for militant attribution.\n            - **Robust Validation**: Transparent temporal and geographic generalization protocols with calibrated outputs.\n            - **Interpretability**: Practitioner-friendly insights (e.g., province-period signatures, tactic/target cues).\n            ",
-  "Possible Issues": "\n            **Data & Labeling**\n            - Class imbalance (AQ << Taliban, ISIS-K varies by year): use class weights, PR-AUC focus, threshold tuning.\n            - Ambiguity in `notes` and actor aliasing: maintain conservative label policy; document exclusions.\n            - Deduplication and reporting variance: implement robust near-duplicate detection.\n\n            **Modeling**\n            - Temporal drift (2019\u20132021 dynamics): enforce out-of-time testing and drift diagnostics.\n            - Geographic leakage (train/test proximity): use H3/province-aware splits; group by time & region.\n\n            **Ethics & Safety**\n            - Outputs are **analytical aids**, not targeting tools; include model card with limitations.\n            - Respect ACLED license/terms; avoid re-distribution of raw data if restricted; document data handling.\n            ",
-  "Proposed by": "Dr. Amir Jafari",
-  "Proposed by email": "ajafari@gwu.edu",
-  "instructor": "Amir Jafari",
-  "instructor_email": "ajafari@gwu.edu",
-  "github_repo": "https://github.com/amir-jafari/Capstone"
-}
+Violent Extremist Organization Classification in Afghanistan Using Machine Learning
+Overview
+
+This project develops supervised machine learning models to classify unattributed or ambiguously attributed violent events in Afghanistan among three organizations: Taliban, al-Qaeda (AQ), and ISIS-K using ACLED data for 2015–2021 (through the U.S. withdrawal).
+
+The work builds a transparent, reproducible classification pipeline with rigorous evaluation and interpretability, aimed at providing analytical aids for conflict researchers and policy analysts.
+
+Objectives
+
+Build a reproducible pipeline for data ingestion, cleaning, feature engineering, modeling, and evaluation.
+
+Compare text-only, spatiotemporal-only, and multimodal (text + structured) models.
+
+Prioritize imbalanced-aware metrics (macro-F1, per-class PR-AUC) and model calibration for decision usefulness.
+
+Deliver interpretable outputs with uncertainty estimates for real-world analyst use.
+
+Dataset
+Primary Dataset: ACLED (Armed Conflict Location & Event Data), Afghanistan 2015–2021
+
+Fields used:
+
+Event metadata: event_date, event_type, sub_event_type, fatalities
+
+Actor info: actor1, actor2, assoc_actor*
+
+Location: admin1/province, latitude, longitude
+
+Narrative: notes (text descriptions of events)
+
+Target Classes: Taliban, AQ, ISIS-K
+
+Preprocessing & Labeling
+
+Labels derived from actor* and assoc_actor* fields using conservative curation rules.
+
+Deduplication of near-identical reports.
+
+Exclusion of mixed/coalition cases from training; analyzed separately.
+
+Engineered Features
+
+Textual: TF-IDF features, keyphrase detection, contextual embeddings (BERT).
+
+Spatiotemporal: province/district, geohash/H3 cells, event recency, Ramadan & seasonal markers, distance to prior hotspots.
+
+Operational: event type, weapon proxies, lethality buckets, repeating patterns in provinces/time windows.
+
+Rationale
+
+Field data is often noisy and incomplete, leaving many ACLED events unattributed. A principled machine learning classifier can:
+
+Provide consistent, transparent attribution hypotheses for unattributed events.
+
+Reveal distinct operational signatures between Taliban, AQ, and ISIS-K.
+
+Support analysis with interpretable evidence, not just black-box scores.
+
+Research Gaps Addressed:
+
+Lack of reproducible baselines for militant group attribution.
+
+Limited multimodal fusion (text + spatial + operational) in conflict data.
+
+Scarce temporal and geographic generalization evaluations.
+
+Approach
+Methodology
+
+Train/validation split: 2015–2019
+
+Test split: 2020–2021 (out-of-time generalization)
+
+Grouped splits to prevent temporal & geographic leakage.
+
+Models
+
+Baselines: Majority class, last-seen cell class.
+
+Linear: Logistic Regression, Linear SVM on TF-IDF.
+
+Tree-based: Random Forest, XGBoost on structured + text-reduced features.
+
+Neural (text): Fine-tuned BERT on notes.
+
+Fusion: early fusion (feature concat), late fusion (stacked models).
+
+Evaluation
+
+Metrics: macro-F1, per-class F1, PR-AUC, calibration (ECE/Brier score).
+
+Robustness: province hold-outs, temporal drift checks.
+
+Interpretability: SHAP (tree/linear), attention visualizations (BERT).
+
+Timeline
+
+Week 1: Data acquisition, label policy, exploratory analysis.
+
+Week 2: Cleaning, deduplication, leakage checks, initial features.
+
+Week 3: Baseline + linear models.
+
+Week 4: Tree-based ensembles; calibration.
+
+Week 5: BERT text models; fusion experiments.
+
+Week 6: Robustness tests, interpretability analysis, error breakdowns.
+
+Week 7: Apply to unattributed events; draft results.
+
+Week 8: Final documentation, ethical use statement, repo packaging.
+
+Expected Contributions
+
+Benchmark Dataset/Code: First open baselines for Taliban vs AQ vs ISIS-K attribution on ACLED.
+
+Multimodal Fusion Evidence: Evaluation of text + spatial + operational feature integration.
+
+Robust Validation Protocols: Transparent, temporally aware, and geography-aware testing.
+
+Interpretability: Insights into tactics, geography, and temporal signatures of groups.
+
+Possible Issues & Mitigation
+
+Class Imbalance (AQ << Taliban, ISIS-K fluctuates): handle with weighted losses, PR-AUC focus, calibrated thresholds.
+
+Label Ambiguity: strict curation; exclusion of contested records.
+
+Temporal Drift: enforce time-based splits, conduct drift analysis.
+
+Geographic Leakage: group-aware validation using H3/province.
+
+Ethical Considerations: include model card; clarify that results are analytical aids only.
+
+Project Info
+
+Instructor / Advisor: Dr. Amir Jafari (ajafari@gwu.edu
+)
+
+Semester: Fall 2025
+
+Repository: Capstone GitHub Repo
