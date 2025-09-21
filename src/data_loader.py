@@ -8,3 +8,4 @@ def load_data():
     df = pd.read_csv(data_path)
 
     return df
+# will add more as time goes on

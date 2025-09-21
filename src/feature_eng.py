@@ -1,4 +1,6 @@
 import pandas as pd
+from data_loader import load_data
+
 
 
 #-----Cols to Drop----
@@ -62,11 +64,15 @@ violence_against_women_tags = [
 ]
 #-----Tags for 'violence against women tags'----
 
+#----Load Data---
+df = load_data()
+#----Load Data---
 
 #---------Feature Eng--------
 
 
 def feature_creating(df):
+    df = df.drop(columns=to_drop)
     df['event_date'] = pd.to_datetime(df['event_date'])
     df = df.sort_values(by='event_date', ascending=True)
     df = df.reset_index(drop=True)
@@ -109,7 +115,5 @@ def feature_creating(df):
 
     return working_df,  unattrib_df
 
-
-
-
 #---------Feature Eng--------
+
