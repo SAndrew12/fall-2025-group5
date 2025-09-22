@@ -33,3 +33,6 @@ trainer = ModelTrainer(X_train, y_train, X_test, y_test)
 
 # Train models
 trainer.train_models()
+
+results_df = trainer.get_results_df()
+print(results_df)
