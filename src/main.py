@@ -7,7 +7,7 @@ from classical_models import t_t_s
 df = load_data()
 
 #Pre-proccess data + features
-working_df  = feature_creating(df)
+working_df, unattrib_df  = feature_creating(df)
 print(working_df.shape)
 
 #looks good
@@ -15,11 +15,14 @@ print(working_df.shape)
 
 print(working_df['target'].value_counts())
 print(working_df['target'].unique())
+
+
+
 #Classical models
 
-# X_train, X_test, y_train, y_test = t_t_s(working_df)
+X_train, X_test, y_train, y_test = t_t_s(working_df)
 #
-# print(X_train.shape)
-# print(X_test.shape)
-# print(y_train.shape)
-# print(y_test.shape)
+print(X_train.shape)
+print(X_test.shape)
+print(y_train.shape)
+print(y_test.shape)
