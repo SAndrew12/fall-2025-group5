@@ -28,7 +28,7 @@ def t_t_s(working_df):
     y = working_df['target']
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
-        test_size=0.3,
+        test_size=0.4,
         random_state=random_seed,
         stratify=y
     )

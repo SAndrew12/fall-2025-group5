@@ -229,11 +229,11 @@ class ModelTrainer:
 
 # ============ USAGE EXAMPLE ============
 
-# Initialize trainer
-trainer = ModelTrainer(random_state=42)
-
-# Add preprocessing
-trainer.add_preprocessing('scaler', StandardScaler())
+# # Initialize trainer
+# trainer = ModelTrainer(random_state=42)
+#
+# # Add preprocessing
+# trainer.add_preprocessing('scaler', StandardScaler())
 
 # Option 1: Train all models at once
 # trainer.fit_all(X_train, y_train, models=['rfc', 'xgb'], cv=5, scoring='f1_macro', n_jobs=-1)
