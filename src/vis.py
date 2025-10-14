@@ -10,7 +10,8 @@ def plot_model_performance(results_df, metric='f1_macro'):
     plt.ylabel(metric)
     plt.xlabel('Model')
     plt.tight_layout()
-    plt.show()
+    plt.savefig(os.path.join(save_dir, f'model_performance_{metric}.png'))
+    plt.close()
 
 def plot_confusion_matrix_best(trainer, X_test, y_test):
     model, stats = trainer.get_best_model()
@@ -19,7 +20,8 @@ def plot_confusion_matrix_best(trainer, X_test, y_test):
     disp = ConfusionMatrixDisplay.from_predictions(y_test, y_pred, cmap='Blues')
     disp.ax_.set_title(f'Confusion Matrix: {stats["model"]}')
     plt.tight_layout()
-    plt.show()
+    plt.savefig(os.path.join(save_dir, f'model_performance_{metric}.png'))
+    plt.close()
 
 def plot_roc_pr(trainer, X_test, y_test):
     model, stats = trainer.get_best_model()
@@ -56,4 +58,5 @@ def plot_roc_pr(trainer, X_test, y_test):
     plt.ylabel("Precision")
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig("roc_pr_curve.png")
+    plt.close()

@@ -64,9 +64,13 @@ class ModelTrainer:
             X_train_fold, y_train_fold = X[train_idx], y[train_idx]
             X_val_fold, y_val_fold = X[val_idx], y[val_idx]
 
+            # --- FIX: Fit preprocessing only on training fold ---
+            X_train_fold_proc = self._apply_preprocessing(X_train_fold, fit=True)
+            X_val_fold_proc = self._apply_preprocessing(X_val_fold, fit=False)
+
             sampler_cls = RESAMPLERS[sampler_name]
             sampler = sampler_cls()
-            X_resampled, y_resampled = sampler.fit_resample(X_train_fold, y_train_fold)
+            X_resampled, y_resampled = sampler.fit_resample(X_train_fold_proc, y_train_fold)
 
             grid = GridSearchCV(model, param_grid, scoring=scoring, cv=3, n_jobs=n_jobs)
             grid.fit(X_resampled, y_resampled)
@@ -74,7 +78,7 @@ class ModelTrainer:
             best_model = grid.best_estimator_
             best_models.append(best_model)
 
-            y_pred = best_model.predict(X_val_fold)
+            y_pred = best_model.predict(X_val_fold_proc)
             report = classification_report(y_val_fold, y_pred, output_dict=True)
 
             scores.append(grid.best_score_)
@@ -87,6 +91,45 @@ class ModelTrainer:
 
         avg_metrics = pd.DataFrame(metrics).mean().to_dict()
         return avg_metrics, np.mean(scores), best_models[np.argmax(scores)]
+
+    # def _cross_val_with_resampling(self, model, param_grid, X, y, sampler_name, scoring='f1_macro', cv=5, n_jobs=-1):
+    #     if isinstance(X, pd.DataFrame):
+    #         X = X.values
+    #     if isinstance(y, pd.Series):
+    #         y = y.values
+    #
+    #     skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=self.random_state)
+    #     scores = []
+    #     metrics = []
+    #     best_models = []
+    #
+    #     for fold_idx, (train_idx, val_idx) in enumerate(tqdm(skf.split(X, y), total=cv, desc="CV folds", leave=False)):
+    #         X_train_fold, y_train_fold = X[train_idx], y[train_idx]
+    #         X_val_fold, y_val_fold = X[val_idx], y[val_idx]
+    #
+    #         sampler_cls = RESAMPLERS[sampler_name]
+    #         sampler = sampler_cls()
+    #         X_resampled, y_resampled = sampler.fit_resample(X_train_fold, y_train_fold)
+    #
+    #         grid = GridSearchCV(model, param_grid, scoring=scoring, cv=3, n_jobs=n_jobs)
+    #         grid.fit(X_resampled, y_resampled)
+    #
+    #         best_model = grid.best_estimator_
+    #         best_models.append(best_model)
+    #
+    #         y_pred = best_model.predict(X_val_fold)
+    #         report = classification_report(y_val_fold, y_pred, output_dict=True)
+    #
+    #         scores.append(grid.best_score_)
+    #         metrics.append({
+    #             'f1_macro': report['macro avg']['f1-score'],
+    #             'accuracy': report['accuracy'],
+    #             'precision': report['macro avg']['precision'],
+    #             'recall': report['macro avg']['recall']
+    #         })
+    #
+    #     avg_metrics = pd.DataFrame(metrics).mean().to_dict()
+    #     return avg_metrics, np.mean(scores), best_models[np.argmax(scores)]
 
     def random_forest(self, X, y, sampler, scoring='f1_macro', cv=5, n_jobs=-1):
         model = RandomForestClassifier(class_weight='balanced', random_state=self.random_state)
