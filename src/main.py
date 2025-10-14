@@ -5,6 +5,11 @@ from train_test_split import t_t_s
 from under_over import undersample_train
 from models import ModelTrainer
 from vis import *
+
+
+
+
+# 1. Load data
 # 1. Load data
 df = load_data()
 
@@ -30,7 +35,7 @@ results_df = trainer.get_results()
 print(results_df[['model', 'cv_score', 'f1_macro', 'accuracy', 'precision', 'recall']])
 
 # 8. Best model
-best_model, best_stats = trainer.get_best_model(metric='f1_macro')
+best_model, preprocessors, best_stats = trainer.get_best_model(metric='f1_macro')
 print("\nBest Model:")
 print(best_stats)
 
