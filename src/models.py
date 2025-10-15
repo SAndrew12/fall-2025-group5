@@ -159,10 +159,10 @@ class ModelTrainer:
     def random_forest(self, X, y, sampler, scoring='f1_macro', cv=5, n_jobs=-1):
         model = RandomForestClassifier(class_weight='balanced', random_state=self.random_state)
         param_grid = {
-            'n_estimators': [100, 200, 300],
+            'n_estimators': [200],
             'max_depth': [10, 20, 30],
-            'min_samples_split': [2, 5],
-            'min_samples_leaf': [1, 2],
+            'min_samples_split': [2],
+            'min_samples_leaf': [1],
             'max_features': ['sqrt', 'log2']
         }
         return self._train_model(model, param_grid, X, y, sampler, 'rfc', scoring, cv, n_jobs)
@@ -170,23 +170,23 @@ class ModelTrainer:
     def xgboost(self, X, y, sampler, scoring='f1_macro', cv=5, n_jobs=-1):
         model = XGBClassifier(random_state=self.random_state, eval_metric='logloss')
         param_grid = {
-            'n_estimators': [100, 200, 300],
+            'n_estimators': [200],
             'max_depth': [3, 6, 9],
-            'learning_rate': [0.01, 0.05, 0.1],
-            'subsample': [0.7, 0.8, 0.9],
-            'colsample_bytree': [0.7, 0.8, 0.9],
-            'scale_pos_weight': [1, 3, 5]  # For class imbalance
+            'learning_rate': [0.01, 0.1],
+            'subsample': [0.8],
+            'colsample_bytree': [0.8],
+            'scale_pos_weight': [1, 3]
         }
         return self._train_model(model, param_grid, X, y, sampler, 'xgb', scoring, cv, n_jobs)
 
     def mlp_classifier(self, X, y, sampler, scoring='f1_macro', cv=5, n_jobs=-1):
         model = MLPClassifier(early_stopping=True, random_state=self.random_state, max_iter=500)
         param_grid = {
-            'hidden_layer_sizes': [(50, 50), (100, 50)],
-            'activation': ['relu', 'tanh'],
+            'hidden_layer_sizes': [(100, 50)],
+            'activation': ['relu'],
             'alpha': [0.0001, 0.001],
-            'learning_rate_init': [0.001, 0.01],
-            'batch_size': [32, 64]
+            'learning_rate_init': [0.001],
+            'batch_size': [64]
         }
         return self._train_model(model, param_grid, X, y, sampler, 'mlpc', scoring, cv, n_jobs)
 
@@ -220,7 +220,7 @@ class ModelTrainer:
         return self
 
     def fit_all(self, X, y, models=['rfc', 'xgb', 'mlpc'], samplers=None,
-                scoring='f1_macro', cv=5, n_jobs=-1):
+                scoring='f1_macro', cv=3, n_jobs=-1):
         """Train all specified models with all samplers"""
         if samplers is None:
             samplers = list(RESAMPLERS.keys())
