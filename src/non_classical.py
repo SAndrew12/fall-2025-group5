@@ -73,12 +73,19 @@ class BERTClassifier:
 
     def _create_model(self):
         """Create a fresh BERT model"""
+
+
+        from torch import tensor
+        class_weights = tensor([1.0, 49.0]).to(device)
+
         model = BertForSequenceClassification.from_pretrained(
             self.model_name,
             num_labels=2,
             output_attentions=False,
             output_hidden_states=False
         )
+
+        self.class_weights = class_weights
         return model.to(device)
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
