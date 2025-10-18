@@ -264,3 +264,115 @@ def generate_all_plots(trainer, X_test, y_test, results_df=None, save_dir=SAVE_D
     print("=" * 60)
     print(f"All visualizations saved to: {save_dir}")
     print("=" * 60 + "\n")
+
+
+# Add these functions to your existing vis.py file
+
+def plot_bert_confusion_matrix(y_test, y_pred, model_name='BERT', save_dir=SAVE_DIR):
+    """
+    Plot confusion matrix for BERT results
+
+    Args:
+        y_test: True labels
+        y_pred: Predicted labels
+        model_name: Name to display on plot
+        save_dir: Directory to save plots
+    """
+    from sklearn.metrics import ConfusionMatrixDisplay
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    disp = ConfusionMatrixDisplay.from_predictions(
+        y_test, y_pred,
+        cmap='Blues',
+        ax=ax,
+        colorbar=True
+    )
+    ax.set_title(f'Confusion Matrix: {model_name}', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    save_path = os.path.join(save_dir, f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"Saved: {save_path}")
+    plt.close()
+
+
+def plot_bert_roc_pr(y_test, y_proba, model_name='BERT', save_dir=SAVE_DIR):
+    """
+    Plot ROC and Precision-Recall curves for BERT
+
+    Args:
+        y_test: True labels
+        y_proba: Predicted probabilities (n_samples, n_classes)
+        model_name: Name to display on plot
+        save_dir: Directory to save plots
+    """
+    from sklearn.metrics import roc_curve, auc, precision_recall_curve
+
+    # Get probability for positive class
+    y_score = y_proba[:, 1]
+
+    # Calculate curves
+    fpr, tpr, _ = roc_curve(y_test, y_score)
+    roc_auc = auc(fpr, tpr)
+    precision, recall, _ = precision_recall_curve(y_test, y_score)
+    pr_auc = auc(recall, precision)
+
+    # Create plot
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # ROC Curve
+    axes[0].plot(fpr, tpr, linewidth=2, label=f'AUC = {roc_auc:.3f}')
+    axes[0].plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random')
+    axes[0].set_title(f'ROC Curve: {model_name}', fontsize=12, fontweight='bold')
+    axes[0].set_xlabel('False Positive Rate', fontsize=11)
+    axes[0].set_ylabel('True Positive Rate', fontsize=11)
+    axes[0].legend(loc='lower right')
+    axes[0].grid(alpha=0.3)
+
+    # Precision-Recall Curve
+    axes[1].plot(recall, precision, linewidth=2, label=f'AUC = {pr_auc:.3f}')
+    axes[1].set_title(f'Precision-Recall Curve: {model_name}', fontsize=12, fontweight='bold')
+    axes[1].set_xlabel('Recall', fontsize=11)
+    axes[1].set_ylabel('Precision', fontsize=11)
+    axes[1].legend(loc='lower left')
+    axes[1].grid(alpha=0.3)
+
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, f'roc_pr_curve_{model_name.lower().replace(" ", "_")}.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"Saved: {save_path}")
+    plt.close()
+
+
+def generate_bert_plots(bert_model, X_test_text, y_test, model_name='BERT', save_dir=SAVE_DIR):
+    """
+    Convenience function to generate all BERT plots at once
+
+    Args:
+        bert_model: Trained BERTClassifier instance
+        X_test_text: Test texts
+        y_test: Test labels
+        model_name: Name to display on plots
+        save_dir: Directory to save plots
+    """
+    print("\n" + "=" * 60)
+    print(f"GENERATING VISUALIZATIONS FOR {model_name}")
+    print("=" * 60)
+
+    # Create save directory
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    # Get predictions
+    y_pred = bert_model.predict(X_test_text)
+    y_proba = bert_model.predict_proba(X_test_text)
+
+    # Generate plots
+    plot_bert_confusion_matrix(y_test, y_pred, model_name, save_dir)
+    plot_bert_roc_pr(y_test, y_proba, model_name, save_dir)
+
+    print("=" * 60)
+    print(f"All visualizations saved to: {save_dir}")
+    print("=" * 60 + "\n")
+
+
