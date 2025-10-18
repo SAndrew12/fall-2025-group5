@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from transformers import BertTokenizer, BertForSequenceClassification, AdamW
+from transformers import BertTokenizer, BertForSequenceClassification
+from transformers import BertTokenizer, BertForSequenceClassification
+from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from sklearn.metrics import classification_report
 import pandas as pd
