@@ -117,7 +117,7 @@ def run_bert_model():
         if has_taliban or has_isis:
             print(f" LEAKAGE DETECTED: {text[:100]}...")
     print("=== END CHECK ===\n")
-    
+
     y = working_df['target']
 
     # 4. Train-test split for text data
@@ -137,10 +137,10 @@ def run_bert_model():
     # 5. Initialize and train BERT
     bert_model = BERTClassifier(
         model_name='bert-base-uncased',
-        max_length=128,
-        batch_size=8,
+        max_length=256,
+        batch_size=4,
         learning_rate=2e-5,
-        epochs=3,
+        epochs=8,
         random_state=42
     )
 
