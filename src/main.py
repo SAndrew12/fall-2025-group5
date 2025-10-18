@@ -140,7 +140,7 @@ def run_bert_model():
         max_length=256,
         batch_size=4,
         learning_rate=2e-5,
-        epochs=8,
+        epochs=5,
         random_state=42
     )
 
