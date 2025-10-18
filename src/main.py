@@ -1,6 +1,7 @@
 import pandas as pd
 from data_loader import load_data
 from feature_eng import feature_creating
+from feature_eng import mask_group_names, mask_location_names
 from train_test_split import t_t_s
 from under_over import undersample_train
 from models import ModelTrainer
@@ -102,6 +103,21 @@ def run_bert_model():
     # 3. Get the text column and labels
     # Extract 'notes' column before train-test split
     X_text = working_df['notes'].fillna('')  # Handle missing values
+    print("\nRemoving group names and locations from text...")
+    X_text = X_text.apply(mask_group_names)
+    X_text = X_text.apply(mask_location_names)
+    print("Text masking complete!")
+
+    print("\n=== CHECKING FOR LEAKAGE ===")
+    sample_texts = X_text.head(10)
+    for i, text in enumerate(sample_texts):
+        has_taliban = any(word in text.lower() for word in ['taliban', 'taleban'])
+        has_isis = any(word in text.lower() for word in ['isis', 'islamic state'])
+        print(f"Text {i}: Taliban={has_taliban}, ISIS={has_isis}")
+        if has_taliban or has_isis:
+            print(f" LEAKAGE DETECTED: {text[:100]}...")
+    print("=== END CHECK ===\n")
+    
     y = working_df['target']
 
     # 4. Train-test split for text data
