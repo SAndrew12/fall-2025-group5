@@ -95,7 +95,7 @@ class BERTClassifier:
             X_val: Validation texts (optional)
             y_val: Validation labels (optional)
         """
-        print("\n" +G "=" * 60)
+        print("\n" + "=" * 60)
         print("TRAINING BERT CLASSIFIER")
         print("=" * 60)
 
