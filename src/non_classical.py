@@ -75,8 +75,6 @@ class BERTClassifier:
         """Create a fresh BERT model"""
 
 
-        from torch import tensor
-        class_weights = tensor([1.0, 49.0]).to(device)
 
         model = BertForSequenceClassification.from_pretrained(
             self.model_name,
@@ -84,8 +82,7 @@ class BERTClassifier:
             output_attentions=False,
             output_hidden_states=False
         )
-
-        self.class_weights = class_weights
+        self.class_weights = torch.tensor([1.0, 49.0]).to(device)
         return model.to(device)
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
@@ -98,7 +95,7 @@ class BERTClassifier:
             X_val: Validation texts (optional)
             y_val: Validation labels (optional)
         """
-        print("\n" + "=" * 60)
+        print("\n" +G "=" * 60)
         print("TRAINING BERT CLASSIFIER")
         print("=" * 60)
 
@@ -191,15 +188,25 @@ class BERTClassifier:
             attention_mask = batch['attention_mask'].to(device)
             labels = batch['label'].to(device)
 
-            # Forward pass
             outputs = self.model(
                 input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
+                attention_mask=attention_mask
             )
 
-            loss = outputs.loss
             logits = outputs.logits
+
+            # Calculate weighted loss using class weights ✅
+            loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+            loss = loss_fct(logits, labels)
+            # # Forward pass
+            # outputs = self.model(
+            #     input_ids=input_ids,
+            #     attention_mask=attention_mask,
+            #     labels=labels
+            # )
+            #
+            # loss = outputs.loss
+            # logits = outputs.logits
 
             # Backward pass
             optimizer.zero_grad()
@@ -240,12 +247,14 @@ class BERTClassifier:
 
                 outputs = self.model(
                     input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels
+                    attention_mask=attention_mask
                 )
 
-                loss = outputs.loss
                 logits = outputs.logits
+
+                # Calculate weighted loss using class weights ✅
+                loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+                loss = loss_fct(logits, labels)
 
                 preds = torch.argmax(logits, dim=1)
                 correct_predictions += torch.sum(preds == labels).item()
