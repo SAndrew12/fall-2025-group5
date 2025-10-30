@@ -1,7 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from transformers import BertTokenizer, BertForSequenceClassification
-from transformers import BertTokenizer, BertForSequenceClassification
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from sklearn.metrics import classification_report
@@ -51,28 +50,25 @@ class TextDataset(Dataset):
 
 
 class BERTClassifier:
-    """BERT-based binary classifier with batch balancing support"""
+    """BERT-based binary classifier with improved minority class handling"""
 
     def __init__(self, model_name='bert-base-uncased', max_length=128,
                  batch_size=16, learning_rate=2e-5, epochs=3, random_state=42,
-                 use_batch_balancing=True):
-        """
-        Args:
-            model_name: Pre-trained BERT model name
-            max_length: Maximum sequence length
-            batch_size: Batch size for training
-            learning_rate: Learning rate for optimizer
-            epochs: Number of training epochs
-            random_state: Random seed for reproducibility
-            use_batch_balancing: If True, uses WeightedRandomSampler to balance batches
-        """
+                 use_class_weights=True, use_balanced_sampler=True,
+                 focal_loss=False, focal_alpha=0.25, focal_gamma=2.0,
+                 prediction_threshold=0.5):
         self.model_name = model_name
         self.max_length = max_length
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.random_state = random_state
-        self.use_batch_balancing = use_batch_balancing
+        self.use_class_weights = use_class_weights
+        self.use_balanced_sampler = use_balanced_sampler
+        self.focal_loss = focal_loss
+        self.focal_alpha = focal_alpha
+        self.focal_gamma = focal_gamma
+        self.prediction_threshold = prediction_threshold
 
         # Set random seeds
         torch.manual_seed(random_state)
@@ -82,6 +78,29 @@ class BERTClassifier:
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
         self.model = None
         self.training_stats = []
+        self.class_weights = None
+
+    def _calculate_class_weights(self, y_train):
+        """Calculate balanced class weights using effective number of samples"""
+        unique, counts = np.unique(y_train, return_counts=True)
+
+        # Method 1: Inverse frequency (more moderate)
+        total = len(y_train)
+        weights = total / (len(unique) * counts)
+
+        # Method 2: Effective number of samples (even more moderate)
+        beta = 0.9999
+        effective_num = 1.0 - np.power(beta, counts)
+        weights_effective = (1.0 - beta) / effective_num
+        weights_effective = weights_effective / weights_effective.sum() * len(unique)
+
+        # Use the more moderate effective number approach
+        class_weights = torch.FloatTensor(weights_effective).to(device)
+
+        print(f"\nClass distribution: {dict(zip(unique, counts))}")
+        print(f"Class weights: {dict(zip(unique, weights_effective))}")
+
+        return class_weights
 
     def _create_model(self):
         """Create a fresh BERT model"""
@@ -91,58 +110,30 @@ class BERTClassifier:
             output_attentions=False,
             output_hidden_states=False
         )
-        self.class_weights = torch.tensor([1.0, 49.0]).to(device)
         return model.to(device)
 
     def _create_balanced_sampler(self, y_train):
-        """
-        Create a WeightedRandomSampler for batch balancing
+        """Create a weighted sampler for balanced batches"""
+        class_counts = np.bincount(y_train)
+        class_weights = 1. / class_counts
+        sample_weights = class_weights[y_train]
 
-        Batch balancing ensures each training batch has approximately equal
-        representation of both classes. This is different from batch size:
-        - Batch size = number of samples per batch
-        - Batch balancing = composition/distribution of classes within each batch
-
-        The sampler assigns higher probability to minority class samples so they
-        appear more frequently in batches, leading to more balanced batches.
-
-        Args:
-            y_train: Training labels
-
-        Returns:
-            WeightedRandomSampler object
-        """
-        # Convert to numpy if needed
-        if hasattr(y_train, 'to_numpy'):
-            labels = y_train.to_numpy()
-        elif hasattr(y_train, 'tolist'):
-            labels = np.array(y_train.tolist())
-        else:
-            labels = np.array(y_train)
-
-        # Calculate class counts
-        class_counts = np.bincount(labels)
-        print(f"\n📊 Class distribution in training data: {dict(enumerate(class_counts))}")
-
-        # Calculate weights for each class (inverse frequency)
-        # This gives higher weight to minority class
-        class_weights = 1.0 / class_counts
-        print(f"📊 Class weights (for sampling): {dict(enumerate(class_weights))}")
-
-        # Assign weight to each sample based on its class
-        sample_weights = class_weights[labels]
-
-        # Create sampler
         sampler = WeightedRandomSampler(
             weights=sample_weights,
             num_samples=len(sample_weights),
-            replacement=True  # Allow sampling with replacement
+            replacement=True
         )
-
-        print(f"✅ Batch balancing enabled: Minority class will be oversampled in each batch")
-        print(f"   Expected samples per batch: ~{self.batch_size // 2} from each class")
-
         return sampler
+
+    def _focal_loss(self, logits, labels, alpha=0.25, gamma=2.0):
+        """
+        Focal Loss for handling class imbalance
+        Focuses training on hard examples
+        """
+        ce_loss = torch.nn.functional.cross_entropy(logits, labels, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = alpha * (1 - pt) ** gamma * ce_loss
+        return focal_loss.mean()
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
         """
@@ -156,35 +147,42 @@ class BERTClassifier:
         """
         print("\n" + "=" * 60)
         print("TRAINING BERT CLASSIFIER")
-        if self.use_batch_balancing:
-            print("WITH BATCH BALANCING")
         print("=" * 60)
+
+        # Convert to lists if needed
+        X_train_list = X_train.tolist() if hasattr(X_train, 'tolist') else X_train
+        y_train_list = y_train.tolist() if hasattr(y_train, 'tolist') else y_train
+        y_train_array = np.array(y_train_list)
+
+        # Calculate class weights
+        if self.use_class_weights:
+            self.class_weights = self._calculate_class_weights(y_train_array)
 
         # Create model
         self.model = self._create_model()
 
         # Create datasets
         train_dataset = TextDataset(
-            X_train.tolist() if hasattr(X_train, 'tolist') else X_train,
-            y_train.tolist() if hasattr(y_train, 'tolist') else y_train,
+            X_train_list,
+            y_train_list,
             self.tokenizer,
             self.max_length
         )
 
-        # Create train loader with optional batch balancing
-        if self.use_batch_balancing:
-            sampler = self._create_balanced_sampler(y_train)
-            train_loader = DataLoader(
-                train_dataset,
-                batch_size=self.batch_size,
-                sampler=sampler  # Use sampler instead of shuffle
-            )
-        else:
-            train_loader = DataLoader(
-                train_dataset,
-                batch_size=self.batch_size,
-                shuffle=True
-            )
+        # Create sampler if using balanced sampling
+        sampler = None
+        shuffle = True
+        if self.use_balanced_sampler:
+            sampler = self._create_balanced_sampler(y_train_array)
+            shuffle = False  # Sampler handles shuffling
+            print("Using balanced batch sampler")
+
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=shuffle,
+            sampler=sampler
+        )
 
         # Create validation loader if provided
         val_loader = None
@@ -206,34 +204,47 @@ class BERTClassifier:
         total_steps = len(train_loader) * self.epochs
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=0,
+            num_warmup_steps=int(0.1 * total_steps),  # 10% warmup
             num_training_steps=total_steps
         )
 
         # Training loop
+        best_val_f1 = 0
         for epoch in range(self.epochs):
             print(f"\nEpoch {epoch + 1}/{self.epochs}")
 
             # Training
-            train_loss, train_acc = self._train_epoch(
+            train_loss, train_acc, train_minority_recall = self._train_epoch(
                 train_loader, optimizer, scheduler
             )
 
             epoch_stats = {
                 'epoch': epoch + 1,
                 'train_loss': train_loss,
-                'train_accuracy': train_acc
+                'train_accuracy': train_acc,
+                'train_minority_recall': train_minority_recall
             }
 
             # Validation
             if val_loader is not None:
-                val_loss, val_acc = self._evaluate_epoch(val_loader)
+                val_loss, val_acc, val_minority_recall, val_f1 = self._evaluate_epoch(val_loader)
                 epoch_stats['val_loss'] = val_loss
                 epoch_stats['val_accuracy'] = val_acc
-                print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
-                print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
+                epoch_stats['val_minority_recall'] = val_minority_recall
+                epoch_stats['val_f1'] = val_f1
+
+                print(
+                    f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Train Min Recall: {train_minority_recall:.4f}")
+                print(
+                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | Val Min Recall: {val_minority_recall:.4f} | Val F1: {val_f1:.4f}")
+
+                # Track best model based on validation F1
+                if val_f1 > best_val_f1:
+                    best_val_f1 = val_f1
+                    print(f"New best validation F1: {val_f1:.4f}")
             else:
-                print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
+                print(
+                    f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Train Min Recall: {train_minority_recall:.4f}")
 
             self.training_stats.append(epoch_stats)
 
@@ -249,6 +260,8 @@ class BERTClassifier:
         total_loss = 0
         correct_predictions = 0
         total_predictions = 0
+        minority_correct = 0
+        minority_total = 0
 
         progress_bar = tqdm(train_loader, desc="Training")
 
@@ -258,6 +271,7 @@ class BERTClassifier:
             attention_mask = batch['attention_mask'].to(device)
             labels = batch['label'].to(device)
 
+            # Forward pass
             outputs = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask
@@ -265,9 +279,15 @@ class BERTClassifier:
 
             logits = outputs.logits
 
-            # Calculate weighted loss using class weights
-            loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
-            loss = loss_fct(logits, labels)
+            # Calculate loss based on configuration
+            if self.focal_loss:
+                loss = self._focal_loss(logits, labels, self.focal_alpha, self.focal_gamma)
+            elif self.use_class_weights and self.class_weights is not None:
+                loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+                loss = loss_fct(logits, labels)
+            else:
+                loss_fct = torch.nn.CrossEntropyLoss()
+                loss = loss_fct(logits, labels)
 
             # Backward pass
             optimizer.zero_grad()
@@ -276,10 +296,17 @@ class BERTClassifier:
             optimizer.step()
             scheduler.step()
 
-            # Calculate accuracy
+            # Calculate metrics
             preds = torch.argmax(logits, dim=1)
             correct_predictions += torch.sum(preds == labels).item()
             total_predictions += labels.size(0)
+
+            # Track minority class (assuming class 1 is minority)
+            minority_mask = labels == 1
+            if minority_mask.sum() > 0:
+                minority_correct += torch.sum((preds == labels) & minority_mask).item()
+                minority_total += minority_mask.sum().item()
+
             total_loss += loss.item()
 
             # Update progress bar
@@ -290,8 +317,9 @@ class BERTClassifier:
 
         avg_loss = total_loss / len(train_loader)
         avg_acc = correct_predictions / total_predictions
+        minority_recall = minority_correct / minority_total if minority_total > 0 else 0
 
-        return avg_loss, avg_acc
+        return avg_loss, avg_acc, minority_recall
 
     def _evaluate_epoch(self, val_loader):
         """Evaluate on validation set"""
@@ -299,6 +327,10 @@ class BERTClassifier:
         total_loss = 0
         correct_predictions = 0
         total_predictions = 0
+        minority_correct = 0
+        minority_total = 0
+        all_preds = []
+        all_labels = []
 
         with torch.no_grad():
             for batch in tqdm(val_loader, desc="Validating"):
@@ -313,23 +345,44 @@ class BERTClassifier:
 
                 logits = outputs.logits
 
-                # Calculate weighted loss using class weights
-                loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
-                loss = loss_fct(logits, labels)
+                # Calculate loss
+                if self.focal_loss:
+                    loss = self._focal_loss(logits, labels, self.focal_alpha, self.focal_gamma)
+                elif self.use_class_weights and self.class_weights is not None:
+                    loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+                    loss = loss_fct(logits, labels)
+                else:
+                    loss_fct = torch.nn.CrossEntropyLoss()
+                    loss = loss_fct(logits, labels)
 
                 preds = torch.argmax(logits, dim=1)
                 correct_predictions += torch.sum(preds == labels).item()
                 total_predictions += labels.size(0)
+
+                # Track minority class
+                minority_mask = labels == 1
+                if minority_mask.sum() > 0:
+                    minority_correct += torch.sum((preds == labels) & minority_mask).item()
+                    minority_total += minority_mask.sum().item()
+
                 total_loss += loss.item()
+
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
 
         avg_loss = total_loss / len(val_loader)
         avg_acc = correct_predictions / total_predictions
+        minority_recall = minority_correct / minority_total if minority_total > 0 else 0
 
-        return avg_loss, avg_acc
+        # Calculate F1 score
+        from sklearn.metrics import f1_score
+        f1 = f1_score(all_labels, all_preds, average='macro')
+
+        return avg_loss, avg_acc, minority_recall, f1
 
     def predict(self, X):
         """
-        Make predictions on new data
+        Make predictions on new data with adjustable threshold
 
         Args:
             X: Texts to predict (list or Series)
@@ -340,41 +393,12 @@ class BERTClassifier:
         if self.model is None:
             raise ValueError("Model not trained. Call fit() first.")
 
-        self.model.eval()
+        probabilities = self.predict_proba(X)
 
-        # Create dataset
-        # Use dummy labels (0s) since we only need predictions
-        dummy_labels = [0] * len(X)
-        dataset = TextDataset(
-            X.tolist() if hasattr(X, 'tolist') else X,
-            dummy_labels,
-            self.tokenizer,
-            self.max_length
-        )
+        # Apply custom threshold for minority class (class 1)
+        predictions = (probabilities[:, 1] >= self.prediction_threshold).astype(int)
 
-        dataloader = DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False
-        )
-
-        predictions = []
-
-        with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Predicting"):
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
-
-                outputs = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask
-                )
-
-                logits = outputs.logits
-                preds = torch.argmax(logits, dim=1)
-                predictions.extend(preds.cpu().numpy())
-
-        return np.array(predictions)
+        return predictions
 
     def predict_proba(self, X):
         """
@@ -424,6 +448,39 @@ class BERTClassifier:
 
         return np.array(probabilities)
 
+    def find_optimal_threshold(self, X_val, y_val):
+        """
+        Find optimal prediction threshold for minority class
+
+        Args:
+            X_val: Validation texts
+            y_val: Validation labels
+
+        Returns:
+            optimal_threshold: Best threshold for F1 score
+        """
+        probabilities = self.predict_proba(X_val)
+
+        from sklearn.metrics import f1_score
+
+        thresholds = np.arange(0.1, 0.9, 0.05)
+        best_f1 = 0
+        best_threshold = 0.5
+
+        print("\nFinding optimal threshold...")
+        for threshold in thresholds:
+            preds = (probabilities[:, 1] >= threshold).astype(int)
+            f1 = f1_score(y_val, preds, average='macro')
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = threshold
+
+        print(f"Optimal threshold: {best_threshold:.2f} (F1: {best_f1:.4f})")
+        self.prediction_threshold = best_threshold
+
+        return best_threshold
+
     def evaluate(self, X_test, y_test):
         """
         Evaluate model on test set
@@ -450,7 +507,10 @@ class BERTClassifier:
             'test_f1_macro': report['macro avg']['f1-score'],
             'test_accuracy': report['accuracy'],
             'test_precision': report['macro avg']['precision'],
-            'test_recall': report['macro avg']['recall']
+            'test_recall': report['macro avg']['recall'],
+            'minority_precision': report['1']['precision'],
+            'minority_recall': report['1']['recall'],
+            'minority_f1': report['1']['f1-score']
         }
 
         print("\nTest Results:")
@@ -458,6 +518,10 @@ class BERTClassifier:
         print(f"Accuracy: {results['test_accuracy']:.4f}")
         print(f"Precision: {results['test_precision']:.4f}")
         print(f"Recall: {results['test_recall']:.4f}")
+        print(f"\nMinority Class (Class 1):")
+        print(f"  Precision: {results['minority_precision']:.4f}")
+        print(f"  Recall: {results['minority_recall']:.4f}")
+        print(f"  F1-Score: {results['minority_f1']:.4f}")
 
         print("\nDetailed Classification Report:")
         print(classification_report(y_test, y_pred, zero_division=0))
