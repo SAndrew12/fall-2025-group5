@@ -1,0 +1,711 @@
+"""
+BERT Feature Fusion Model
+Combines BERT text embeddings with manually engineered features
+"""
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+from transformers import BertModel, BertTokenizer
+from torch.optim import AdamW
+from transformers import get_linear_schedule_with_warmup
+from sklearn.metrics import classification_report
+import pandas as pd
+import numpy as np
+from tqdm import tqdm
+import warnings
+
+warnings.filterwarnings('ignore')
+
+# Set device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
+
+class TextFeatureDataset(Dataset):
+    """Dataset for text + manual features classification"""
+
+    def __init__(self, texts, manual_features, labels, tokenizer, max_length=128):
+        """
+        Args:
+            texts: List or Series of text strings
+            manual_features: numpy array or DataFrame of manual features
+            labels: List or Series of labels
+            tokenizer: BERT tokenizer
+            max_length: Maximum sequence length for BERT
+        """
+        self.texts = texts
+        self.manual_features = manual_features
+        self.labels = labels
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        text = str(self.texts[idx])
+        label = self.labels[idx]
+        manual_feat = self.manual_features[idx]
+
+        # Tokenize text
+        encoding = self.tokenizer.encode_plus(
+            text,
+            add_special_tokens=True,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            return_tensors='pt'
+        )
+
+        return {
+            'input_ids': encoding['input_ids'].flatten(),
+            'attention_mask': encoding['attention_mask'].flatten(),
+            'manual_features': torch.tensor(manual_feat, dtype=torch.float),
+            'label': torch.tensor(label, dtype=torch.long)
+        }
+
+
+class BERTWithManualFeatures(nn.Module):
+    """
+    BERT model with feature fusion layer for combining text and manual features
+    """
+
+    def __init__(self, bert_model_name='bert-base-uncased',
+                 num_manual_features=10,
+                 hidden_dim=128,
+                 dropout=0.3):
+        """
+        Args:
+            bert_model_name: Pretrained BERT model name
+            num_manual_features: Number of manual features to integrate
+            hidden_dim: Hidden dimension for manual feature layer
+            dropout: Dropout rate
+        """
+        super(BERTWithManualFeatures, self).__init__()
+
+        # BERT for text processing
+        self.bert = BertModel.from_pretrained(bert_model_name)
+
+        # Linear layer for manual features
+        self.feature_layer = nn.Linear(num_manual_features, hidden_dim)
+
+        # Combined layers
+        bert_hidden_size = self.bert.config.hidden_size  # 768 for base BERT
+        self.combined_layer = nn.Linear(bert_hidden_size + hidden_dim, 256)
+
+        # Final classification layer
+        self.classifier = nn.Linear(256, 2)
+
+        self.dropout = nn.Dropout(dropout)
+        self.relu = nn.ReLU()
+
+    def forward(self, input_ids, attention_mask, manual_features):
+        """
+        Forward pass
+
+        Args:
+            input_ids: BERT input token ids
+            attention_mask: BERT attention mask
+            manual_features: Manual features tensor
+
+        Returns:
+            logits: Classification logits
+        """
+        # Get BERT output
+        bert_output = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask
+        )
+        cls_embedding = bert_output.last_hidden_state[:, 0, :]  # [CLS] token
+
+        # Process manual features
+        feature_embedding = self.relu(self.feature_layer(manual_features))
+        feature_embedding = self.dropout(feature_embedding)
+
+        # Concatenate BERT and manual features
+        combined = torch.cat([cls_embedding, feature_embedding], dim=1)
+
+        # Pass through combined layers
+        x = self.relu(self.combined_layer(combined))
+        x = self.dropout(x)
+
+        # Final classification
+        logits = self.classifier(x)
+        return logits
+
+
+class BERTFeatureFusionClassifier:
+    """
+    BERT classifier with manual feature fusion for binary classification
+    """
+
+    def __init__(self, model_name='bert-base-uncased',
+                 max_length=128,
+                 batch_size=16,
+                 learning_rate=2e-5,
+                 epochs=3,
+                 random_state=42,
+                 hidden_dim=128,
+                 dropout=0.3,
+                 use_class_weights=True,
+                 use_balanced_sampler=True,
+                 focal_loss=False,
+                 focal_alpha=0.25,
+                 focal_gamma=2.0,
+                 prediction_threshold=0.5):
+        """
+        Initialize BERT Feature Fusion classifier
+
+        Args:
+            model_name: Pretrained BERT model name
+            max_length: Maximum sequence length
+            batch_size: Batch size for training
+            learning_rate: Learning rate
+            epochs: Number of training epochs
+            random_state: Random seed
+            hidden_dim: Hidden dimension for manual feature layer
+            dropout: Dropout rate
+            use_class_weights: Whether to use class weights in loss
+            use_balanced_sampler: Whether to use balanced sampling
+            focal_loss: Whether to use focal loss
+            focal_alpha: Focal loss alpha parameter
+            focal_gamma: Focal loss gamma parameter
+            prediction_threshold: Classification threshold
+        """
+        self.model_name = model_name
+        self.max_length = max_length
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.random_state = random_state
+        self.hidden_dim = hidden_dim
+        self.dropout = dropout
+        self.use_class_weights = use_class_weights
+        self.use_balanced_sampler = use_balanced_sampler
+        self.focal_loss = focal_loss
+        self.focal_alpha = focal_alpha
+        self.focal_gamma = focal_gamma
+        self.prediction_threshold = prediction_threshold
+
+        # Set random seeds
+        torch.manual_seed(random_state)
+        np.random.seed(random_state)
+
+        # Initialize tokenizer
+        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.model = None
+        self.training_stats = []
+        self.class_weights = None
+        self.num_manual_features = None
+
+    def _calculate_class_weights(self, y_train):
+        """Calculate balanced class weights using effective number of samples"""
+        unique, counts = np.unique(y_train, return_counts=True)
+
+        # Effective number of samples (moderate weighting)
+        beta = 0.9999
+        effective_num = 1.0 - np.power(beta, counts)
+        weights_effective = (1.0 - beta) / effective_num
+        weights_effective = weights_effective / weights_effective.sum() * len(unique)
+
+        class_weights = torch.FloatTensor(weights_effective).to(device)
+
+        print(f"\nClass distribution: {dict(zip(unique, counts))}")
+        print(f"Class weights: {dict(zip(unique, weights_effective))}")
+
+        return class_weights
+
+    def _create_model(self, num_manual_features):
+        """Create BERT model with feature fusion"""
+        model = BERTWithManualFeatures(
+            bert_model_name=self.model_name,
+            num_manual_features=num_manual_features,
+            hidden_dim=self.hidden_dim,
+            dropout=self.dropout
+        )
+        return model.to(device)
+
+    def _create_balanced_sampler(self, y_train):
+        """Create a weighted sampler for balanced batches"""
+        class_counts = np.bincount(y_train)
+        class_weights = 1. / class_counts
+        sample_weights = class_weights[y_train]
+
+        sampler = WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True
+        )
+        return sampler
+
+    def _focal_loss(self, logits, labels, alpha=0.25, gamma=2.0):
+        """Focal Loss for handling class imbalance"""
+        ce_loss = torch.nn.functional.cross_entropy(logits, labels, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = alpha * (1 - pt) ** gamma * ce_loss
+        return focal_loss.mean()
+
+    def fit(self, X_text_train, X_features_train, y_train,
+            X_text_val=None, X_features_val=None, y_val=None):
+        """
+        Train the BERT Feature Fusion model
+
+        Args:
+            X_text_train: Training texts (list or Series)
+            X_features_train: Training manual features (numpy array or DataFrame)
+            y_train: Training labels (list or Series)
+            X_text_val: Validation texts (optional)
+            X_features_val: Validation manual features (optional)
+            y_val: Validation labels (optional)
+        """
+        print("\n" + "=" * 80)
+        print("TRAINING BERT FEATURE FUSION CLASSIFIER")
+        print("=" * 80)
+
+        # Convert to appropriate formats
+        X_text_train_list = X_text_train.tolist() if hasattr(X_text_train, 'tolist') else X_text_train
+        y_train_list = y_train.tolist() if hasattr(y_train, 'tolist') else y_train
+        y_train_array = np.array(y_train_list)
+
+        # Convert manual features to numpy array
+        if isinstance(X_features_train, pd.DataFrame):
+            X_features_train = X_features_train.values
+        X_features_train = np.array(X_features_train, dtype=np.float32)
+
+        # Store number of features for model creation
+        self.num_manual_features = X_features_train.shape[1]
+        print(f"Number of manual features: {self.num_manual_features}")
+
+        # Calculate class weights
+        if self.use_class_weights:
+            self.class_weights = self._calculate_class_weights(y_train_array)
+
+        # Create model
+        self.model = self._create_model(self.num_manual_features)
+
+        # Create training dataset
+        train_dataset = TextFeatureDataset(
+            X_text_train_list,
+            X_features_train,
+            y_train_list,
+            self.tokenizer,
+            self.max_length
+        )
+
+        # Create sampler if using balanced sampling
+        sampler = None
+        shuffle = True
+        if self.use_balanced_sampler:
+            sampler = self._create_balanced_sampler(y_train_array)
+            shuffle = False
+            print("Using balanced batch sampler")
+
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=shuffle,
+            sampler=sampler
+        )
+
+        # Create validation loader if provided
+        val_loader = None
+        if X_text_val is not None and X_features_val is not None and y_val is not None:
+            # Convert validation features
+            if isinstance(X_features_val, pd.DataFrame):
+                X_features_val = X_features_val.values
+            X_features_val = np.array(X_features_val, dtype=np.float32)
+
+            val_dataset = TextFeatureDataset(
+                X_text_val.tolist() if hasattr(X_text_val, 'tolist') else X_text_val,
+                X_features_val,
+                y_val.tolist() if hasattr(y_val, 'tolist') else y_val,
+                self.tokenizer,
+                self.max_length
+            )
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False
+            )
+
+        # Setup optimizer and scheduler
+        optimizer = AdamW(self.model.parameters(), lr=self.learning_rate)
+        total_steps = len(train_loader) * self.epochs
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=int(0.1 * total_steps),
+            num_training_steps=total_steps
+        )
+
+        # Training loop
+        best_val_f1 = 0
+        for epoch in range(self.epochs):
+            print(f"\nEpoch {epoch + 1}/{self.epochs}")
+
+            # Training
+            train_loss, train_acc, train_minority_recall = self._train_epoch(
+                train_loader, optimizer, scheduler
+            )
+
+            epoch_stats = {
+                'epoch': epoch + 1,
+                'train_loss': train_loss,
+                'train_accuracy': train_acc,
+                'train_minority_recall': train_minority_recall
+            }
+
+            # Validation
+            if val_loader is not None:
+                val_loss, val_acc, val_minority_recall, val_f1 = self._evaluate_epoch(val_loader)
+
+                epoch_stats.update({
+                    'val_loss': val_loss,
+                    'val_accuracy': val_acc,
+                    'val_minority_recall': val_minority_recall,
+                    'val_f1_macro': val_f1
+                })
+
+                print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                      f"Val Minority Recall: {val_minority_recall:.4f} | Val F1: {val_f1:.4f}")
+
+                if val_f1 > best_val_f1:
+                    best_val_f1 = val_f1
+                    print(f"✓ New best validation F1: {best_val_f1:.4f}")
+
+            self.training_stats.append(epoch_stats)
+
+        print("\n" + "=" * 80)
+        print("TRAINING COMPLETED")
+        print("=" * 80 + "\n")
+
+        return self
+
+    def _train_epoch(self, train_loader, optimizer, scheduler):
+        """Train for one epoch"""
+        self.model.train()
+        total_loss = 0
+        correct_predictions = 0
+        total_predictions = 0
+        minority_correct = 0
+        minority_total = 0
+
+        progress_bar = tqdm(train_loader, desc="Training")
+
+        for batch in progress_bar:
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            manual_features = batch['manual_features'].to(device)
+            labels = batch['label'].to(device)
+
+            # Forward pass
+            logits = self.model(input_ids, attention_mask, manual_features)
+
+            # Calculate loss
+            if self.focal_loss:
+                loss = self._focal_loss(logits, labels, self.focal_alpha, self.focal_gamma)
+            elif self.use_class_weights:
+                loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
+                loss = loss_fct(logits, labels)
+            else:
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(logits, labels)
+
+            # Backward pass
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            optimizer.step()
+            scheduler.step()
+
+            # Calculate metrics
+            preds = torch.argmax(logits, dim=1)
+            correct_predictions += torch.sum(preds == labels).item()
+            total_predictions += labels.size(0)
+            total_loss += loss.item()
+
+            # Calculate minority class recall (class 1)
+            minority_mask = (labels == 1)
+            if minority_mask.sum() > 0:
+                minority_correct += torch.sum((preds == 1) & minority_mask).item()
+                minority_total += minority_mask.sum().item()
+
+            # Update progress bar
+            progress_bar.set_postfix({
+                'loss': loss.item(),
+                'acc': correct_predictions / total_predictions
+            })
+
+        avg_loss = total_loss / len(train_loader)
+        avg_acc = correct_predictions / total_predictions
+        minority_recall = minority_correct / minority_total if minority_total > 0 else 0
+
+        print(f"Train Loss: {avg_loss:.4f} | Train Acc: {avg_acc:.4f} | "
+              f"Train Minority Recall: {minority_recall:.4f}")
+
+        return avg_loss, avg_acc, minority_recall
+
+    def _evaluate_epoch(self, val_loader):
+        """Evaluate on validation set"""
+        self.model.eval()
+        total_loss = 0
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for batch in tqdm(val_loader, desc="Validating"):
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                manual_features = batch['manual_features'].to(device)
+                labels = batch['label'].to(device)
+
+                logits = self.model(input_ids, attention_mask, manual_features)
+
+                # Calculate loss
+                if self.focal_loss:
+                    loss = self._focal_loss(logits, labels, self.focal_alpha, self.focal_gamma)
+                elif self.use_class_weights:
+                    loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
+                    loss = loss_fct(logits, labels)
+                else:
+                    loss_fct = nn.CrossEntropyLoss()
+                    loss = loss_fct(logits, labels)
+
+                total_loss += loss.item()
+
+                preds = torch.argmax(logits, dim=1)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        avg_loss = total_loss / len(val_loader)
+
+        # Calculate metrics
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
+
+        correct = (all_preds == all_labels).sum()
+        accuracy = correct / len(all_labels)
+
+        # Minority recall
+        minority_mask = (all_labels == 1)
+        minority_recall = 0
+        if minority_mask.sum() > 0:
+            minority_correct = ((all_preds == 1) & minority_mask).sum()
+            minority_recall = minority_correct / minority_mask.sum()
+
+        # F1 score
+        report = classification_report(all_labels, all_preds, output_dict=True, zero_division=0)
+        f1_macro = report['macro avg']['f1-score']
+
+        return avg_loss, accuracy, minority_recall, f1_macro
+
+    def predict(self, X_text, X_features):
+        """
+        Make predictions on new data
+
+        Args:
+            X_text: Texts to predict (list or Series)
+            X_features: Manual features (numpy array or DataFrame)
+
+        Returns:
+            numpy array of predictions
+        """
+        if self.model is None:
+            raise ValueError("Model not trained. Call fit() first.")
+
+        self.model.eval()
+
+        # Convert features
+        if isinstance(X_features, pd.DataFrame):
+            X_features = X_features.values
+        X_features = np.array(X_features, dtype=np.float32)
+
+        # Create dataset with dummy labels
+        dummy_labels = [0] * len(X_text)
+        dataset = TextFeatureDataset(
+            X_text.tolist() if hasattr(X_text, 'tolist') else X_text,
+            X_features,
+            dummy_labels,
+            self.tokenizer,
+            self.max_length
+        )
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False
+        )
+
+        predictions = []
+
+        with torch.no_grad():
+            for batch in tqdm(dataloader, desc="Predicting"):
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                manual_features = batch['manual_features'].to(device)
+
+                logits = self.model(input_ids, attention_mask, manual_features)
+                preds = torch.argmax(logits, dim=1)
+                predictions.extend(preds.cpu().numpy())
+
+        return np.array(predictions)
+
+    def predict_proba(self, X_text, X_features):
+        """
+        Get prediction probabilities
+
+        Args:
+            X_text: Texts to predict (list or Series)
+            X_features: Manual features (numpy array or DataFrame)
+
+        Returns:
+            numpy array of shape (n_samples, 2) with probabilities
+        """
+        if self.model is None:
+            raise ValueError("Model not trained. Call fit() first.")
+
+        self.model.eval()
+
+        # Convert features
+        if isinstance(X_features, pd.DataFrame):
+            X_features = X_features.values
+        X_features = np.array(X_features, dtype=np.float32)
+
+        # Create dataset
+        dummy_labels = [0] * len(X_text)
+        dataset = TextFeatureDataset(
+            X_text.tolist() if hasattr(X_text, 'tolist') else X_text,
+            X_features,
+            dummy_labels,
+            self.tokenizer,
+            self.max_length
+        )
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False
+        )
+
+        probabilities = []
+
+        with torch.no_grad():
+            for batch in tqdm(dataloader, desc="Getting probabilities"):
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                manual_features = batch['manual_features'].to(device)
+
+                logits = self.model(input_ids, attention_mask, manual_features)
+                probs = torch.softmax(logits, dim=1)
+                probabilities.extend(probs.cpu().numpy())
+
+        return np.array(probabilities)
+
+    def find_optimal_threshold(self, X_text_val, X_features_val, y_val):
+        """Find optimal classification threshold on validation set"""
+        print("\nFinding optimal classification threshold...")
+
+        y_proba = self.predict_proba(X_text_val, X_features_val)
+        y_proba_class1 = y_proba[:, 1]
+
+        best_f1 = 0
+        best_threshold = 0.5
+
+        for threshold in np.arange(0.3, 0.8, 0.05):
+            y_pred = (y_proba_class1 >= threshold).astype(int)
+            report = classification_report(y_val, y_pred, output_dict=True, zero_division=0)
+            f1 = report['macro avg']['f1-score']
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = threshold
+
+        self.prediction_threshold = best_threshold
+        print(f"Optimal threshold: {best_threshold:.2f} (F1: {best_f1:.4f})")
+
+        return best_threshold
+
+    def evaluate(self, X_text_test, X_features_test, y_test):
+        """
+        Evaluate model on test set
+
+        Args:
+            X_text_test: Test texts
+            X_features_test: Test manual features
+            y_test: Test labels
+
+        Returns:
+            Tuple of (results_dict, predictions, probabilities)
+        """
+        print("\n" + "=" * 80)
+        print("EVALUATING BERT FEATURE FUSION MODEL")
+        print("=" * 80)
+
+        y_pred = self.predict(X_text_test, X_features_test)
+        y_proba = self.predict_proba(X_text_test, X_features_test)
+
+        # Get classification report
+        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+
+        results = {
+            'model': 'bert_feature_fusion',
+            'test_f1_macro': report['macro avg']['f1-score'],
+            'test_accuracy': report['accuracy'],
+            'test_precision': report['macro avg']['precision'],
+            'test_recall': report['macro avg']['recall'],
+            'minority_recall': report['1']['recall'],
+            'minority_precision': report['1']['precision'],
+            'minority_f1': report['1']['f1-score']
+        }
+
+        print("\nTest Results:")
+        print(f"F1 Score (Macro): {results['test_f1_macro']:.4f}")
+        print(f"Accuracy: {results['test_accuracy']:.4f}")
+        print(f"Precision: {results['test_precision']:.4f}")
+        print(f"Recall: {results['test_recall']:.4f}")
+        print(f"\nMinority Class (Class 1) Performance:")
+        print(f"Recall: {results['minority_recall']:.4f}")
+        print(f"Precision: {results['minority_precision']:.4f}")
+        print(f"F1: {results['minority_f1']:.4f}")
+
+        print("\nDetailed Classification Report:")
+        print(classification_report(y_test, y_pred, zero_division=0))
+
+        print("=" * 80 + "\n")
+
+        return results, y_pred, y_proba
+
+    def get_training_stats(self):
+        """Return training statistics as DataFrame"""
+        return pd.DataFrame(self.training_stats)
+
+    def save_model(self, path):
+        """Save model to disk"""
+        if self.model is None:
+            raise ValueError("No model to save. Train the model first.")
+
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'num_manual_features': self.num_manual_features,
+            'prediction_threshold': self.prediction_threshold,
+            'class_weights': self.class_weights
+        }, f"{path}/model.pt")
+
+        self.tokenizer.save_pretrained(path)
+        print(f"Model saved to {path}")
+
+    def load_model(self, path):
+        """Load model from disk"""
+        checkpoint = torch.load(f"{path}/model.pt")
+
+        self.num_manual_features = checkpoint['num_manual_features']
+        self.prediction_threshold = checkpoint['prediction_threshold']
+        self.class_weights = checkpoint['class_weights']
+
+        self.model = self._create_model(self.num_manual_features)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.eval()
+
+        self.tokenizer = BertTokenizer.from_pretrained(path)
+        print(f"Model loaded from {path}")
