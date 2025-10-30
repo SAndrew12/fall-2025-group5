@@ -12,7 +12,7 @@ from vis import *
 # ============================================================================
 RUN_CLASSICAL = False
 RUN_BERT = False
-RUN_FEATURE_FUSION = True  
+RUN_FEATURE_FUSION = True
 
 # ============================================================================
 
@@ -308,7 +308,7 @@ def run_feature_fusion_model():
     print("=" * 80 + "\n")
 
     # Import feature fusion classifier
-    from bert_feature_fusion import BERTFeatureFusionClassifier
+    from feature_fusion import BERTFeatureFusionClassifier
 
     # 1. Load data
     df = load_data()
