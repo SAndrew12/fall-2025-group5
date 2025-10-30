@@ -88,7 +88,7 @@ def run_bert_model():
     print("=" * 80 + "\n")
 
     # Import improved BERT classifier
-    from non_classical_improved import BERTClassifier
+    from non_classical import BERTClassifier
 
     # 1. Load data
     df = load_data()
