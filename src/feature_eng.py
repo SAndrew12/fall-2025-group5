@@ -326,6 +326,10 @@ def create_casualty_threshold_features(df, fatalities_column='fatalities'):
 
 
 
+
+
+# ---------Feature Eng Old--------
+
 def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_features=True):
     """
     Feature engineering pipeline with optional text embeddings and lean features
@@ -356,9 +360,8 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
         'year',
         'region',
         'latitude',
-        'longitude'
-        # 'interaction'  <-- REMOVED FROM DROP LIST
-    ]
+        'longitude',
+        'interaction']
     # -----Cols to Drop----
 
     # ------Groups-----
@@ -406,6 +409,7 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
     df = df.reset_index(drop=True)
 
     # create a dataframe of unattributed attacks
+    # to be used later
     unattrib_df = df[df['actor1'].isin(unattrib)].copy()
     unattrib_df = unattrib_df.reset_index(drop=True)
 
@@ -433,13 +437,16 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
     working_df = working_df.drop(index=[2300, 28966, 31115])
     working_df = working_df.reset_index(drop=True)
 
-    # -----ADD LEAN FEATURES-----
+    # -----ADD LEAN FEATURES (Numeric-Derived + Aggregate/Count)-----
     if use_lean_features:
         print("\n" + "=" * 60)
         print("CREATING LEAN FEATURES (6 total)")
         print("=" * 60)
 
+        # 1. Casualty threshold features (4 features)
         working_df = create_casualty_threshold_features(working_df, fatalities_column='fatalities')
+
+        # 2. Aggregate attack count features (2 features)
         working_df = create_aggregate_attack_features(working_df, text_column='notes')
 
         print("=" * 60)
@@ -452,6 +459,7 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
         print("CREATING TEXT EMBEDDINGS")
         print("=" * 60)
 
+        # Create embeddings for specified text columns
         working_df = create_text_embeddings(working_df, text_columns)
 
         print("=" * 60)
@@ -459,155 +467,10 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
         print("=" * 60 + "\n")
 
     # -----ONE-HOT ENCODING (after all feature creation)-----
-    encoded_cols = ['sub_event_type', 'interaction']  # <--- ADDED 'interaction' HERE
+    encoded_cols = ['sub_event_type']
     working_df = pd.get_dummies(working_df, columns=encoded_cols, dtype=int)
 
     return working_df, unattrib_df
-
-
-# ---------Feature Eng Old--------
-
-# def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_features=True):
-#     """
-#     Feature engineering pipeline with optional text embeddings and lean features
-#
-#     Args:
-#         df: Input DataFrame
-#         use_embeddings: Whether to create text embeddings (default: True)
-#         text_columns: List of text columns to embed (default: ['notes', 'actor2'])
-#                      Set to None to skip embeddings
-#         use_lean_features: Whether to create lean context features (default: True)
-#                           Adds 6 features: 4 casualty thresholds + 2 attack counts
-#
-#     Returns:
-#         working_df: Processed DataFrame with features
-#         unattrib_df: DataFrame of unattributed attacks
-#     """
-#     # -----Cols to Drop----
-#     to_drop = [
-#         'event_id_cnty',
-#         'disorder_type',
-#         'time_precision',
-#         'source',
-#         'source_scale',
-#         'iso',
-#         'country',
-#         'timestamp',
-#         'geo_precision',
-#         'year',
-#         'region',
-#         'latitude',
-#         'longitude',
-#         'interaction']
-#     # -----Cols to Drop----
-#
-#     # ------Groups-----
-#     unattrib = [
-#         'Unidentified Armed Group (Afghanistan)',
-#         'Taliban and/or Islamic State Khorasan Province (ISKP)'
-#     ]
-#
-#     taliban = [
-#         'Taliban',
-#         'Taliban - Red Unit',
-#         'Mutiny of Taliban'
-#     ]
-#
-#     iskp = [
-#         'Islamic State Khorasan Province (ISKP)'
-#     ]
-#
-#     other = [
-#         'Al Qaeda',
-#         'HQN: Haqqani Network',
-#         'TTP: Tehreek-i-Taliban Pakistan',
-#         'LeI: Lashkar-e-Islam'
-#     ]
-#     # ------Groups-----
-#
-#     # -----Tags for 'violence against women tags'----
-#     violence_against_women_tags = [
-#         'women targeted: government officials',
-#         'women targeted: girls',
-#         'women targeted: girls; women targeted: relatives of targeted groups or persons',
-#         'local administrators',
-#         'women targeted: government officials; women targeted: relatives of targeted groups or persons',
-#         'women targeted: candidates for office',
-#         'women targeted: activists/human rights defenders/social leaders',
-#         'women targeted: relatives of targeted groups or persons',
-#         'local administrators; women targeted: politicians',
-#         'women targeted: activists/human rights defenders/social leaders; women targeted: government officials'
-#     ]
-#     # -----Tags for 'violence against women tags'----
-#
-#     df = df.drop(columns=to_drop)
-#     df['event_date'] = pd.to_datetime(df['event_date'])
-#     df = df.sort_values(by='event_date', ascending=True)
-#     df = df.reset_index(drop=True)
-#
-#     # create a dataframe of unattributed attacks
-#     # to be used later
-#     unattrib_df = df[df['actor1'].isin(unattrib)].copy()
-#     unattrib_df = unattrib_df.reset_index(drop=True)
-#
-#     # mapping the target vars
-#     mapping = {name: 0 for name in taliban}
-#     mapping.update({name: 1 for name in iskp})
-#
-#     working_df = df.copy()
-#
-#     # map to the df
-#     working_df = working_df[working_df['actor1'].isin(taliban + iskp)].copy()
-#     working_df['target'] = working_df['actor1'].map(mapping).astype(int)
-#
-#     # create violence against women tags
-#     working_df['violence_against_women'] = (
-#             (working_df['sub_event_type'] == 'Sexual violence') |
-#             ((working_df['tags'].isin(violence_against_women_tags)) & (working_df['tags'] != 'local administrators'))
-#     ).astype(int)
-#
-#     working_df = working_df.reset_index(drop=True)
-#     col = "civilian_targeting"
-#
-#     working_df[col] = working_df[col].notna().astype(int)
-#
-#     working_df = working_df.drop(index=[2300, 28966, 31115])
-#     working_df = working_df.reset_index(drop=True)
-#
-#     # -----ADD LEAN FEATURES (Numeric-Derived + Aggregate/Count)-----
-#     if use_lean_features:
-#         print("\n" + "=" * 60)
-#         print("CREATING LEAN FEATURES (6 total)")
-#         print("=" * 60)
-#
-#         # 1. Casualty threshold features (4 features)
-#         working_df = create_casualty_threshold_features(working_df, fatalities_column='fatalities')
-#
-#         # 2. Aggregate attack count features (2 features)
-#         working_df = create_aggregate_attack_features(working_df, text_column='notes')
-#
-#         print("=" * 60)
-#         print("Lean features created successfully!")
-#         print("=" * 60 + "\n")
-#
-#     # -----ADD TEXT EMBEDDINGS-----
-#     if use_embeddings and text_columns is not None:
-#         print("\n" + "=" * 60)
-#         print("CREATING TEXT EMBEDDINGS")
-#         print("=" * 60)
-#
-#         # Create embeddings for specified text columns
-#         working_df = create_text_embeddings(working_df, text_columns)
-#
-#         print("=" * 60)
-#         print(f"Total features after embeddings: {working_df.shape[1]}")
-#         print("=" * 60 + "\n")
-#
-#     # -----ONE-HOT ENCODING (after all feature creation)-----
-#     encoded_cols = ['sub_event_type']
-#     working_df = pd.get_dummies(working_df, columns=encoded_cols, dtype=int)
-#
-#     return working_df, unattrib_df
 
 # ---------Feature Eng Old--------
 
