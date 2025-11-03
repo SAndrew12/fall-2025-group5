@@ -353,6 +353,9 @@ def run_feature_fusion_model():
         'sub_event_type_Suicide bomb'
     ]
 
+    interaction_cols = [c for c in working_df.columns if c.startswith('interaction_')]
+    manual_feature_cols += interaction_cols
+
     available_manual_features = [col for col in manual_feature_cols if col in working_df.columns]
     print(f"\nUsing {len(available_manual_features)} manual features:")
     print(available_manual_features)
