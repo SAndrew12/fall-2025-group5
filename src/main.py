@@ -7,18 +7,31 @@ from under_over import undersample_train
 from models import ModelTrainer
 from vis import *
 
+# NEW: Import XAI functions
+from xai_explanations import (
+    quick_xai,
+    explain_classical_models,
+    explain_bert_model,
+    analyze_errors_classical
+)
+
 # ============================================================================
 # CONFIGURATION: Choose what to run
 # ============================================================================
-RUN_CLASSICAL = False
+RUN_CLASSICAL = True
 RUN_BERT = False
-RUN_FEATURE_FUSION = True
+RUN_FEATURE_FUSION = False
+
+# XAI CONFIGURATION
+RUN_XAI = True  # Toggle XAI on/off
+XAI_MODE = 'quick'  # 'quick' or 'comprehensive'
+
 
 # ============================================================================
 
 
 def run_classical_models():
-    """Run classical ML models (Random Forest, XGBoost, MLP)"""
+    """Run classical ML models (Random Forest, XGBoost, MLP) with XAI"""
     print("\n" + "=" * 80)
     print("RUNNING CLASSICAL MODELS")
     print("=" * 80 + "\n")
@@ -78,6 +91,39 @@ def run_classical_models():
     plot_confusion_matrix_best(trainer, X_test, y_test)
     plot_roc_pr(trainer, X_test, y_test)
 
+    # ========================================================================
+    # NEW: EXPLAINABLE AI ANALYSIS
+    # ========================================================================
+    if RUN_XAI:
+        # Get feature names
+        feature_names = X_train.columns.tolist()
+
+        if XAI_MODE == 'quick':
+            # Quick XAI - essential plots only (~30 seconds)
+            quick_xai(trainer, X_train_und, X_test, y_test, feature_names)
+
+        elif XAI_MODE == 'comprehensive':
+            # Comprehensive XAI - detailed analysis (~2-5 minutes)
+            explain_classical_models(
+                trainer=trainer,
+                X_train=X_train_und,
+                X_test=X_test,
+                y_test=y_test,
+                feature_names=feature_names,
+                sample_indices=[0, 1, 2, 5, 10]
+            )
+
+            # Optional: Error analysis
+            analyze_errors_classical(
+                trainer=trainer,
+                X_train=X_train_und,
+                X_test=X_test,
+                y_test=y_test,
+                feature_names=feature_names,
+                n_errors=5
+            )
+    # ========================================================================
+
     return results_df, trainer, X_test, y_test
 
 
@@ -134,237 +180,97 @@ def run_bert_model():
     print(f"Class distribution (test): {y_test.value_counts().to_dict()}")
 
     # ============================================================================
-    # EXPERIMENT 1: Balanced Sampler + Moderate Class Weights
+    # Train BERT with Balanced Sampler + Class Weights
     # ============================================================================
     print("\n" + "=" * 80)
-    print("EXPERIMENT 1: Balanced Sampler + Moderate Class Weights")
+    print("TRAINING BERT: Balanced Sampler + Moderate Class Weights")
     print("=" * 80)
 
-    bert_model_1 = BERTClassifier(
+    bert_model = BERTClassifier(
         model_name='bert-base-uncased',
         max_length=256,
         batch_size=4,
         learning_rate=2e-5,
         epochs=5,
         random_state=42,
-        use_class_weights=True,  # Use moderate effective number weights
-        use_balanced_sampler=True,  # Balance batches
+        use_class_weights=True,
+        use_balanced_sampler=True,
         focal_loss=False
     )
 
-    # Split train into train/val with larger validation set
+    # Split train into train/val
     X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(
         X_train_text, y_train,
-        test_size=0.2,  # Larger validation set
+        test_size=0.2,
         random_state=42,
         stratify=y_train
     )
 
-    bert_model_1.fit(X_train_split, y_train_split, X_val_split, y_val_split)
-
-    # Find optimal threshold on validation set
-    bert_model_1.find_optimal_threshold(X_val_split, y_val_split)
-
-    results_1, y_pred_1, y_proba_1 = bert_model_1.evaluate(X_test_text, y_test)
-
-    # ============================================================================
-    # EXPERIMENT 2: Focal Loss (no class weights)
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("EXPERIMENT 2: Focal Loss")
-    print("=" * 80)
-
-    bert_model_2 = BERTClassifier(
-        model_name='bert-base-uncased',
-        max_length=256,
-        batch_size=4,
-        learning_rate=2e-5,
-        epochs=5,
-        random_state=42,
-        use_class_weights=False,
-        use_balanced_sampler=True,
-        focal_loss=True,  # Use focal loss
-        focal_alpha=0.25,
-        focal_gamma=2.0
-    )
-
-    bert_model_2.fit(X_train_split, y_train_split, X_val_split, y_val_split)
-    bert_model_2.find_optimal_threshold(X_val_split, y_val_split)
-    results_2, y_pred_2, y_proba_2 = bert_model_2.evaluate(X_test_text, y_test)
-
-    # ============================================================================
-    # EXPERIMENT 3: Balanced Sampler Only (baseline)
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("EXPERIMENT 3: Balanced Sampler Only (baseline)")
-    print("=" * 80)
-
-    bert_model_3 = BERTClassifier(
-        model_name='bert-base-uncased',
-        max_length=256,
-        batch_size=4,
-        learning_rate=2e-5,
-        epochs=5,
-        random_state=42,
-        use_class_weights=False,
-        use_balanced_sampler=True,
-        focal_loss=False
-    )
-
-    bert_model_3.fit(X_train_split, y_train_split, X_val_split, y_val_split)
-    bert_model_3.find_optimal_threshold(X_val_split, y_val_split)
-    results_3, y_pred_3, y_proba_3 = bert_model_3.evaluate(X_test_text, y_test)
-
-    # ============================================================================
-    # COMPARE RESULTS
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("COMPARING ALL EXPERIMENTS")
-    print("=" * 80)
-
-    comparison_df = pd.DataFrame([
-        {
-            'experiment': 'Balanced Sampler + Class Weights',
-            'macro_f1': results_1['test_f1_macro'],
-            'accuracy': results_1['test_accuracy'],
-            'minority_recall': results_1['minority_recall'],
-            'minority_precision': results_1['minority_precision'],
-            'minority_f1': results_1['minority_f1']
-        },
-        {
-            'experiment': 'Focal Loss',
-            'macro_f1': results_2['test_f1_macro'],
-            'accuracy': results_2['test_accuracy'],
-            'minority_recall': results_2['minority_recall'],
-            'minority_precision': results_2['minority_precision'],
-            'minority_f1': results_2['minority_f1']
-        },
-        {
-            'experiment': 'Balanced Sampler Only',
-            'macro_f1': results_3['test_f1_macro'],
-            'accuracy': results_3['test_accuracy'],
-            'minority_recall': results_3['minority_recall'],
-            'minority_precision': results_3['minority_precision'],
-            'minority_f1': results_3['minority_f1']
-        }
-    ])
-
-    print(comparison_df.to_string(index=False))
-
-    # Find best approach
-    best_idx = comparison_df['minority_f1'].idxmax()
-    best_experiment = comparison_df.iloc[best_idx]
-
-    print("\n" + "=" * 80)
-    print(f"BEST APPROACH: {best_experiment['experiment']}")
-    print("=" * 80)
-    print(f"Minority F1: {best_experiment['minority_f1']:.4f}")
-    print(f"Minority Recall: {best_experiment['minority_recall']:.4f}")
-    print(f"Minority Precision: {best_experiment['minority_precision']:.4f}")
-    print(f"Macro F1: {best_experiment['macro_f1']:.4f}")
+    bert_model.fit(X_train_split, y_train_split, X_val_split, y_val_split)
+    bert_model.find_optimal_threshold(X_val_split, y_val_split)
+    results, y_pred, y_proba = bert_model.evaluate(X_test_text, y_test)
 
     # Save results
-    comparison_df.to_csv("bert_experiments_comparison.csv", index=False)
-    print("\nComparison saved to 'bert_experiments_comparison.csv'")
+    results_df = pd.DataFrame([results])
+    results_df.to_csv("bert_results.csv", index=False)
+    print("\nResults saved to 'bert_results.csv'")
 
-    # Save best model's detailed results
-    if best_idx == 0:
-        best_model = bert_model_1
-        best_results = results_1
-        best_y_pred = y_pred_1
-        best_y_proba = y_proba_1
-    elif best_idx == 1:
-        best_model = bert_model_2
-        best_results = results_2
-        best_y_pred = y_pred_2
-        best_y_proba = y_proba_2
-    else:
-        best_model = bert_model_3
-        best_results = results_3
-        best_y_pred = y_pred_3
-        best_y_proba = y_proba_3
-
-    results_df = pd.DataFrame([best_results])
-    results_df.to_csv("bert_best_results.csv", index=False)
-
-    training_stats = best_model.get_training_stats()
-    training_stats.to_csv("bert_best_training_stats.csv", index=False)
-
-    # Generate visualizations
+    # Visualizations
     from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
-    plot_bert_confusion_matrix(y_test, best_y_pred, model_name=f'BERT - {best_experiment["experiment"]}')
-    plot_bert_roc_pr(y_test, best_y_proba, model_name=f'BERT - {best_experiment["experiment"]}')
+    plot_bert_confusion_matrix(y_test, y_pred, model_name='BERT')
+    plot_bert_roc_pr(y_test, y_proba, model_name='BERT')
 
-    # Optional: Save best model
-    # best_model.save_model("bert_model_best")
+    # ========================================================================
+    # NEW: EXPLAINABLE AI FOR BERT
+    # ========================================================================
+    if RUN_XAI:
+        explain_bert_model(
+            bert_model=bert_model,
+            X_test_text=X_test_text,
+            y_test=y_test,
+            sample_indices=[0, 1, 2, 5, 10],
+            model_name='BERT'
+        )
+    # ========================================================================
 
-    return comparison_df, best_model, X_test_text, y_test, best_y_pred, best_y_proba
+    return results_df, bert_model, X_test_text, y_test, y_pred, y_proba
 
 
-
-def run_feature_fusion_model():
-    """Run BERT with manual features fusion"""
+def run_feature_fusion():
+    """Run BERT + manual features fusion model"""
     print("\n" + "=" * 80)
-    print("RUNNING BERT FEATURE FUSION MODEL")
+    print("RUNNING FEATURE FUSION MODEL")
     print("=" * 80 + "\n")
 
-    # Import feature fusion classifier
-    from feature_fusion import BERTFeatureFusionClassifier
-
-    # Import the export function (add this import at the top of your main.py)
-    from mislabed_data_exp import export_mislabeled_data, export_mislabeled_by_class
+    from feature_fusion import train_fusion_model
 
     # 1. Load data
     df = load_data()
 
-    # 2. Feature engineering - CREATE BOTH MANUAL FEATURES AND TEXT
+    # 2. Feature engineering WITH embeddings for manual features
     working_df, unattrib_df = feature_creating(
         df,
-        use_embeddings=False,
-        text_columns=None
+        use_embeddings=True,
+        text_columns=['notes']
     )
 
-    # 3. Get the text column
+    # 3. Get text and manual features
     X_text = working_df['notes'].fillna('')
     print("\nRemoving group names and locations from text...")
     X_text = X_text.apply(mask_group_names)
     X_text = X_text.apply(mask_location_names)
     print("Text masking complete!")
 
-    # 4. Get manual features
-    manual_feature_cols = [
-        'direct_attack_count',
-        'has_strong_attack_signal',
-        'has_casualties',
-        'high_casualties',
-        'very_high_casualties',
-        'zero_fatalities',
-        'civilian_targeting', 'fatalities', 'violence_against_women',
-        'sub_event_type_Abduction/forced disappearance',
-        'sub_event_type_Air/drone strike',
-        'sub_event_type_Armed clash',
-        'sub_event_type_Attack',
-        'sub_event_type_Government regains territory',
-        'sub_event_type_Grenade',
-        'sub_event_type_Non-state actor overtakes territory',
-        'sub_event_type_Remote explosive/landmine/IED',
-        'sub_event_type_Sexual violence',
-        'sub_event_type_Shelling/artillery/missile attack',
-        'sub_event_type_Suicide bomb'
-    ]
-
-
-    available_manual_features = [col for col in manual_feature_cols if col in working_df.columns]
-    print(f"\nUsing {len(available_manual_features)} manual features:")
-    print(available_manual_features)
-
-    X_features = working_df[available_manual_features]
+    # Get manual features (all except text and target)
+    manual_feature_cols = [col for col in working_df.columns
+                           if col not in ['notes', 'target']]
+    X_manual = working_df[manual_feature_cols]
     y = working_df['target']
 
-    # 5. Train-test split
+    # 4. Train-test split
     from sklearn.model_selection import train_test_split
-    X_text_train, X_text_test, X_feat_train, X_feat_test, y_train, y_test = train_test_split(
-        X_text, X_features, y,
+    X_text_train, X_text_test, X_man_train, X_man_test, y_train, y_test = train_test_split(
+        X_text, X_manual, y,
         test_size=0.4,
         random_state=42,
         stratify=y
@@ -372,232 +278,51 @@ def run_feature_fusion_model():
 
     print(f"\nTraining samples: {len(X_text_train)}")
     print(f"Test samples: {len(X_text_test)}")
-    print(f"Class distribution (train): {y_train.value_counts().to_dict()}")
-    print(f"Class distribution (test): {y_test.value_counts().to_dict()}")
+    print(f"Manual features: {X_manual.shape[1]}")
 
-    # ============================================================================
-    # EXPERIMENT 1: Balanced Sampler + Moderate Class Weights
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("EXPERIMENT 1: Feature Fusion - Balanced Sampler + Class Weights")
-    print("=" * 80)
-
-    fusion_model_1 = BERTFeatureFusionClassifier(
-        model_name='bert-base-uncased',
-        max_length=256,
-        batch_size=4,
-        learning_rate=2e-5,
-        epochs=5,
-        random_state=42,
-        hidden_dim=128,
-        dropout=0.3,
-        use_class_weights=True,
-        use_balanced_sampler=True,
-        focal_loss=False
+    # 5. Train fusion model
+    fusion_model, results = train_fusion_model(
+        X_text_train, X_man_train, y_train,
+        X_text_test, X_man_test, y_test
     )
-
-    X_text_train_split, X_text_val_split, X_feat_train_split, X_feat_val_split, y_train_split, y_val_split = train_test_split(
-        X_text_train, X_feat_train, y_train,
-        test_size=0.2,
-        random_state=42,
-        stratify=y_train
-    )
-
-    fusion_model_1.fit(
-        X_text_train_split, X_feat_train_split, y_train_split,
-        X_text_val_split, X_feat_val_split, y_val_split
-    )
-
-    fusion_model_1.find_optimal_threshold(X_text_val_split, X_feat_val_split, y_val_split)
-    results_1, y_pred_1, y_proba_1 = fusion_model_1.evaluate(X_text_test, X_feat_test, y_test)
-
-    # ============================================================================
-    # EXPERIMENT 2: Focal Loss
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("EXPERIMENT 2: Feature Fusion - Focal Loss")
-    print("=" * 80)
-
-    fusion_model_2 = BERTFeatureFusionClassifier(
-        model_name='bert-base-uncased',
-        max_length=256,
-        batch_size=4,
-        learning_rate=2e-5,
-        epochs=5,
-        random_state=42,
-        hidden_dim=128,
-        dropout=0.3,
-        use_class_weights=False,
-        use_balanced_sampler=True,
-        focal_loss=True,
-        focal_alpha=0.25,
-        focal_gamma=2.0
-    )
-
-    fusion_model_2.fit(
-        X_text_train_split, X_feat_train_split, y_train_split,
-        X_text_val_split, X_feat_val_split, y_val_split
-    )
-    fusion_model_2.find_optimal_threshold(X_text_val_split, X_feat_val_split, y_val_split)
-    results_2, y_pred_2, y_proba_2 = fusion_model_2.evaluate(X_text_test, X_feat_test, y_test)
-
-    # ============================================================================
-    # EXPERIMENT 3: Balanced Sampler Only (baseline)
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("EXPERIMENT 3: Feature Fusion - Balanced Sampler Only")
-    print("=" * 80)
-
-    fusion_model_3 = BERTFeatureFusionClassifier(
-        model_name='bert-base-uncased',
-        max_length=256,
-        batch_size=4,
-        learning_rate=2e-5,
-        epochs=5,
-        random_state=42,
-        hidden_dim=128,
-        dropout=0.3,
-        use_class_weights=False,
-        use_balanced_sampler=True,
-        focal_loss=False
-    )
-
-    fusion_model_3.fit(
-        X_text_train_split, X_feat_train_split, y_train_split,
-        X_text_val_split, X_feat_val_split, y_val_split
-    )
-    fusion_model_3.find_optimal_threshold(X_text_val_split, X_feat_val_split, y_val_split)
-    results_3, y_pred_3, y_proba_3 = fusion_model_3.evaluate(X_text_test, X_feat_test, y_test)
-
-    # ============================================================================
-    # COMPARE RESULTS
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("COMPARING ALL FEATURE FUSION EXPERIMENTS")
-    print("=" * 80)
-
-    comparison_df = pd.DataFrame([
-        {
-            'experiment': 'Feature Fusion - Balanced + Weights',
-            'macro_f1': results_1['test_f1_macro'],
-            'accuracy': results_1['test_accuracy'],
-            'minority_recall': results_1['minority_recall'],
-            'minority_precision': results_1['minority_precision'],
-            'minority_f1': results_1['minority_f1']
-        },
-        {
-            'experiment': 'Feature Fusion - Focal Loss',
-            'macro_f1': results_2['test_f1_macro'],
-            'accuracy': results_2['test_accuracy'],
-            'minority_recall': results_2['minority_recall'],
-            'minority_precision': results_2['minority_precision'],
-            'minority_f1': results_2['minority_f1']
-        },
-        {
-            'experiment': 'Feature Fusion - Balanced Only',
-            'macro_f1': results_3['test_f1_macro'],
-            'accuracy': results_3['test_accuracy'],
-            'minority_recall': results_3['minority_recall'],
-            'minority_precision': results_3['minority_precision'],
-            'minority_f1': results_3['minority_f1']
-        }
-    ])
-
-    print(comparison_df.to_string(index=False))
-
-    # Find best approach
-    best_idx = comparison_df['minority_f1'].idxmax()
-    best_experiment = comparison_df.iloc[best_idx]
-
-    print("\n" + "=" * 80)
-    print(f"BEST FEATURE FUSION APPROACH: {best_experiment['experiment']}")
-    print("=" * 80)
-    print(f"Minority F1: {best_experiment['minority_f1']:.4f}")
-    print(f"Minority Recall: {best_experiment['minority_recall']:.4f}")
-    print(f"Minority Precision: {best_experiment['minority_precision']:.4f}")
-    print(f"Macro F1: {best_experiment['macro_f1']:.4f}")
 
     # Save results
-    comparison_df.to_csv("feature_fusion_comparison.csv", index=False)
-    print("\nComparison saved to 'feature_fusion_comparison.csv'")
+    results_df = pd.DataFrame([results])
+    results_df.to_csv("feature_fusion_results.csv", index=False)
+    print("\nResults saved to 'feature_fusion_results.csv'")
 
-    # Save best model's detailed results
-    if best_idx == 0:
-        best_model = fusion_model_1
-        best_results = results_1
-        best_y_pred = y_pred_1
-        best_y_proba = y_proba_1
-    elif best_idx == 1:
-        best_model = fusion_model_2
-        best_results = results_2
-        best_y_pred = y_pred_2
-        best_y_proba = y_proba_2
-    else:
-        best_model = fusion_model_3
-        best_results = results_3
-        best_y_pred = y_pred_3
-        best_y_proba = y_proba_3
-
-    results_df = pd.DataFrame([best_results])
-    results_df.to_csv("feature_fusion_best_results.csv", index=False)
-
-    training_stats = best_model.get_training_stats()
-    training_stats.to_csv("feature_fusion_training_stats.csv", index=False)
-
-    # ============================================================================
-    # NEW: EXPORT MIS-LABELED DATA FOR MANUAL INSPECTION
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("EXPORTING MIS-LABELED DATA FOR MANUAL INSPECTION")
-    print("=" * 80)
-
-    # Export all mislabeled samples
-    mislabeled_df = export_mislabeled_data(
-        X_text_test, X_feat_test, y_test,
-        best_y_pred, best_y_proba,
-        output_filename='mislabeled_samples.csv'
-    )
-
-    # Also export separated by error type
-    false_positives, false_negatives = export_mislabeled_by_class(
-        X_text_test, X_feat_test, y_test,
-        best_y_pred, best_y_proba,
-        output_prefix='mislabeled'
-    )
-
-    # Print some examples for quick review
-    if mislabeled_df is not None and len(mislabeled_df) > 0:
+    # ========================================================================
+    # NEW: XAI FOR FEATURE FUSION
+    # ========================================================================
+    if RUN_XAI:
         print("\n" + "=" * 80)
-        print("SAMPLE OF MIS-LABELED CASES (5 least confident errors)")
+        print("XAI FOR FEATURE FUSION")
         print("=" * 80)
+        print("\nFor comprehensive XAI on Feature Fusion:")
+        print("1. Run explain_classical_models() on manual features only")
+        print("2. Run explain_bert_model() on text only")
+        print("3. Compare contributions of each modality")
+        print("=" * 80 + "\n")
 
-        sample_df = mislabeled_df.head(5)[['sample_index', 'error_type',
-                                           'prediction_confidence', 'text']]
-        for idx, row in sample_df.iterrows():
-            print(f"\nSample {row['sample_index']} - {row['error_type']}")
-            print(f"Confidence: {row['prediction_confidence']:.4f}")
-            print(f"Text preview: {row['text'][:200]}...")
-            print("-" * 80)
+        # You can add specific feature fusion XAI here if needed
+    # ========================================================================
 
-    # Generate visualizations
-    from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
-    plot_bert_confusion_matrix(y_test, best_y_pred,
-                               model_name=f'Feature Fusion - {best_experiment["experiment"]}')
-    plot_bert_roc_pr(y_test, best_y_proba,
-                     model_name=f'Feature Fusion - {best_experiment["experiment"]}')
-
-    # Optional: Save best model
-    # best_model.save_model("feature_fusion_model_best")
-
-    return comparison_df, best_model, X_text_test, X_feat_test, y_test, best_y_pred, best_y_proba, mislabeled_df
-
-
-
-
+    return results_df, fusion_model, X_text_test, X_man_test, y_test
 
 
 def main():
     """Main execution function"""
+
+    print("\n" + "=" * 80)
+    print("MACHINE LEARNING PIPELINE WITH XAI")
+    print("=" * 80)
+    print(f"Classical Models: {RUN_CLASSICAL}")
+    print(f"BERT Model: {RUN_BERT}")
+    print(f"Feature Fusion: {RUN_FEATURE_FUSION}")
+    print(f"XAI Enabled: {RUN_XAI}")
+    if RUN_XAI:
+        print(f"XAI Mode: {XAI_MODE}")
+    print("=" * 80 + "\n")
 
     # Run classical models if configured
     if RUN_CLASSICAL:
@@ -605,19 +330,29 @@ def main():
 
     # Run BERT if configured
     if RUN_BERT:
-        comparison_df, best_model, X_test_text, y_test_bert, y_pred, y_proba = run_bert_model()
+        bert_results, bert_model, X_test_text, y_test_bert, y_pred, y_proba = run_bert_model()
 
     # Run Feature Fusion if configured
     if RUN_FEATURE_FUSION:
-        comparison_df, best_model, X_text_test, X_feat_test, y_test_fusion, y_pred, y_proba,  mislabeled_df = run_feature_fusion_model()
+        fusion_results, fusion_model, X_text_test, X_man_test, y_test_fusion = run_feature_fusion()
 
     print("\n" + "=" * 80)
     print("ALL TASKS COMPLETED")
     print("=" * 80)
+    print("\nOutputs:")
+    print("  - Model results: *.csv files")
+    print("  - Visualizations: ./visualizations/")
+    if RUN_XAI:
+        print("  - XAI Explanations: ./xai_explanations/")
+    print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":
     main()
+
+
+
+
 
 
 
@@ -637,8 +372,8 @@ if __name__ == "__main__":
 # # CONFIGURATION: Choose what to run
 # # ============================================================================
 # RUN_CLASSICAL = False
-# RUN_BERT = True
-#
+# RUN_BERT = False
+# RUN_FEATURE_FUSION = True
 #
 # # ============================================================================
 #
@@ -927,6 +662,301 @@ if __name__ == "__main__":
 #     return comparison_df, best_model, X_test_text, y_test, best_y_pred, best_y_proba
 #
 #
+#
+# def run_feature_fusion_model():
+#     """Run BERT with manual features fusion"""
+#     print("\n" + "=" * 80)
+#     print("RUNNING BERT FEATURE FUSION MODEL")
+#     print("=" * 80 + "\n")
+#
+#     # Import feature fusion classifier
+#     from feature_fusion import BERTFeatureFusionClassifier
+#
+#     # Import the export function (add this import at the top of your main.py)
+#     from mislabed_data_exp import export_mislabeled_data, export_mislabeled_by_class
+#
+#     # 1. Load data
+#     df = load_data()
+#
+#     # 2. Feature engineering - CREATE BOTH MANUAL FEATURES AND TEXT
+#     working_df, unattrib_df = feature_creating(
+#         df,
+#         use_embeddings=False,
+#         text_columns=None
+#     )
+#
+#     # 3. Get the text column
+#     X_text = working_df['notes'].fillna('')
+#     print("\nRemoving group names and locations from text...")
+#     X_text = X_text.apply(mask_group_names)
+#     X_text = X_text.apply(mask_location_names)
+#     print("Text masking complete!")
+#
+#     # 4. Get manual features
+#     manual_feature_cols = [
+#         'direct_attack_count',
+#         'has_strong_attack_signal',
+#         'has_casualties',
+#         'high_casualties',
+#         'very_high_casualties',
+#         'zero_fatalities',
+#         'civilian_targeting', 'fatalities', 'violence_against_women',
+#         'sub_event_type_Abduction/forced disappearance',
+#         'sub_event_type_Air/drone strike',
+#         'sub_event_type_Armed clash',
+#         'sub_event_type_Attack',
+#         'sub_event_type_Government regains territory',
+#         'sub_event_type_Grenade',
+#         'sub_event_type_Non-state actor overtakes territory',
+#         'sub_event_type_Remote explosive/landmine/IED',
+#         'sub_event_type_Sexual violence',
+#         'sub_event_type_Shelling/artillery/missile attack',
+#         'sub_event_type_Suicide bomb'
+#     ]
+#
+#
+#     available_manual_features = [col for col in manual_feature_cols if col in working_df.columns]
+#     print(f"\nUsing {len(available_manual_features)} manual features:")
+#     print(available_manual_features)
+#
+#     X_features = working_df[available_manual_features]
+#     y = working_df['target']
+#
+#     # 5. Train-test split
+#     from sklearn.model_selection import train_test_split
+#     X_text_train, X_text_test, X_feat_train, X_feat_test, y_train, y_test = train_test_split(
+#         X_text, X_features, y,
+#         test_size=0.4,
+#         random_state=42,
+#         stratify=y
+#     )
+#
+#     print(f"\nTraining samples: {len(X_text_train)}")
+#     print(f"Test samples: {len(X_text_test)}")
+#     print(f"Class distribution (train): {y_train.value_counts().to_dict()}")
+#     print(f"Class distribution (test): {y_test.value_counts().to_dict()}")
+#
+#     # ============================================================================
+#     # EXPERIMENT 1: Balanced Sampler + Moderate Class Weights
+#     # ============================================================================
+#     print("\n" + "=" * 80)
+#     print("EXPERIMENT 1: Feature Fusion - Balanced Sampler + Class Weights")
+#     print("=" * 80)
+#
+#     fusion_model_1 = BERTFeatureFusionClassifier(
+#         model_name='bert-base-uncased',
+#         max_length=256,
+#         batch_size=4,
+#         learning_rate=2e-5,
+#         epochs=5,
+#         random_state=42,
+#         hidden_dim=128,
+#         dropout=0.3,
+#         use_class_weights=True,
+#         use_balanced_sampler=True,
+#         focal_loss=False
+#     )
+#
+#     X_text_train_split, X_text_val_split, X_feat_train_split, X_feat_val_split, y_train_split, y_val_split = train_test_split(
+#         X_text_train, X_feat_train, y_train,
+#         test_size=0.2,
+#         random_state=42,
+#         stratify=y_train
+#     )
+#
+#     fusion_model_1.fit(
+#         X_text_train_split, X_feat_train_split, y_train_split,
+#         X_text_val_split, X_feat_val_split, y_val_split
+#     )
+#
+#     fusion_model_1.find_optimal_threshold(X_text_val_split, X_feat_val_split, y_val_split)
+#     results_1, y_pred_1, y_proba_1 = fusion_model_1.evaluate(X_text_test, X_feat_test, y_test)
+#
+#     # ============================================================================
+#     # EXPERIMENT 2: Focal Loss
+#     # ============================================================================
+#     print("\n" + "=" * 80)
+#     print("EXPERIMENT 2: Feature Fusion - Focal Loss")
+#     print("=" * 80)
+#
+#     fusion_model_2 = BERTFeatureFusionClassifier(
+#         model_name='bert-base-uncased',
+#         max_length=256,
+#         batch_size=4,
+#         learning_rate=2e-5,
+#         epochs=5,
+#         random_state=42,
+#         hidden_dim=128,
+#         dropout=0.3,
+#         use_class_weights=False,
+#         use_balanced_sampler=True,
+#         focal_loss=True,
+#         focal_alpha=0.25,
+#         focal_gamma=2.0
+#     )
+#
+#     fusion_model_2.fit(
+#         X_text_train_split, X_feat_train_split, y_train_split,
+#         X_text_val_split, X_feat_val_split, y_val_split
+#     )
+#     fusion_model_2.find_optimal_threshold(X_text_val_split, X_feat_val_split, y_val_split)
+#     results_2, y_pred_2, y_proba_2 = fusion_model_2.evaluate(X_text_test, X_feat_test, y_test)
+#
+#     # ============================================================================
+#     # EXPERIMENT 3: Balanced Sampler Only (baseline)
+#     # ============================================================================
+#     print("\n" + "=" * 80)
+#     print("EXPERIMENT 3: Feature Fusion - Balanced Sampler Only")
+#     print("=" * 80)
+#
+#     fusion_model_3 = BERTFeatureFusionClassifier(
+#         model_name='bert-base-uncased',
+#         max_length=256,
+#         batch_size=4,
+#         learning_rate=2e-5,
+#         epochs=5,
+#         random_state=42,
+#         hidden_dim=128,
+#         dropout=0.3,
+#         use_class_weights=False,
+#         use_balanced_sampler=True,
+#         focal_loss=False
+#     )
+#
+#     fusion_model_3.fit(
+#         X_text_train_split, X_feat_train_split, y_train_split,
+#         X_text_val_split, X_feat_val_split, y_val_split
+#     )
+#     fusion_model_3.find_optimal_threshold(X_text_val_split, X_feat_val_split, y_val_split)
+#     results_3, y_pred_3, y_proba_3 = fusion_model_3.evaluate(X_text_test, X_feat_test, y_test)
+#
+#     # ============================================================================
+#     # COMPARE RESULTS
+#     # ============================================================================
+#     print("\n" + "=" * 80)
+#     print("COMPARING ALL FEATURE FUSION EXPERIMENTS")
+#     print("=" * 80)
+#
+#     comparison_df = pd.DataFrame([
+#         {
+#             'experiment': 'Feature Fusion - Balanced + Weights',
+#             'macro_f1': results_1['test_f1_macro'],
+#             'accuracy': results_1['test_accuracy'],
+#             'minority_recall': results_1['minority_recall'],
+#             'minority_precision': results_1['minority_precision'],
+#             'minority_f1': results_1['minority_f1']
+#         },
+#         {
+#             'experiment': 'Feature Fusion - Focal Loss',
+#             'macro_f1': results_2['test_f1_macro'],
+#             'accuracy': results_2['test_accuracy'],
+#             'minority_recall': results_2['minority_recall'],
+#             'minority_precision': results_2['minority_precision'],
+#             'minority_f1': results_2['minority_f1']
+#         },
+#         {
+#             'experiment': 'Feature Fusion - Balanced Only',
+#             'macro_f1': results_3['test_f1_macro'],
+#             'accuracy': results_3['test_accuracy'],
+#             'minority_recall': results_3['minority_recall'],
+#             'minority_precision': results_3['minority_precision'],
+#             'minority_f1': results_3['minority_f1']
+#         }
+#     ])
+#
+#     print(comparison_df.to_string(index=False))
+#
+#     # Find best approach
+#     best_idx = comparison_df['minority_f1'].idxmax()
+#     best_experiment = comparison_df.iloc[best_idx]
+#
+#     print("\n" + "=" * 80)
+#     print(f"BEST FEATURE FUSION APPROACH: {best_experiment['experiment']}")
+#     print("=" * 80)
+#     print(f"Minority F1: {best_experiment['minority_f1']:.4f}")
+#     print(f"Minority Recall: {best_experiment['minority_recall']:.4f}")
+#     print(f"Minority Precision: {best_experiment['minority_precision']:.4f}")
+#     print(f"Macro F1: {best_experiment['macro_f1']:.4f}")
+#
+#     # Save results
+#     comparison_df.to_csv("feature_fusion_comparison.csv", index=False)
+#     print("\nComparison saved to 'feature_fusion_comparison.csv'")
+#
+#     # Save best model's detailed results
+#     if best_idx == 0:
+#         best_model = fusion_model_1
+#         best_results = results_1
+#         best_y_pred = y_pred_1
+#         best_y_proba = y_proba_1
+#     elif best_idx == 1:
+#         best_model = fusion_model_2
+#         best_results = results_2
+#         best_y_pred = y_pred_2
+#         best_y_proba = y_proba_2
+#     else:
+#         best_model = fusion_model_3
+#         best_results = results_3
+#         best_y_pred = y_pred_3
+#         best_y_proba = y_proba_3
+#
+#     results_df = pd.DataFrame([best_results])
+#     results_df.to_csv("feature_fusion_best_results.csv", index=False)
+#
+#     training_stats = best_model.get_training_stats()
+#     training_stats.to_csv("feature_fusion_training_stats.csv", index=False)
+#
+#     # ============================================================================
+#     # NEW: EXPORT MIS-LABELED DATA FOR MANUAL INSPECTION
+#     # ============================================================================
+#     print("\n" + "=" * 80)
+#     print("EXPORTING MIS-LABELED DATA FOR MANUAL INSPECTION")
+#     print("=" * 80)
+#
+#     # Export all mislabeled samples
+#     mislabeled_df = export_mislabeled_data(
+#         X_text_test, X_feat_test, y_test,
+#         best_y_pred, best_y_proba,
+#         output_filename='mislabeled_samples.csv'
+#     )
+#
+#     # Also export separated by error type
+#     false_positives, false_negatives = export_mislabeled_by_class(
+#         X_text_test, X_feat_test, y_test,
+#         best_y_pred, best_y_proba,
+#         output_prefix='mislabeled'
+#     )
+#
+#     # Print some examples for quick review
+#     if mislabeled_df is not None and len(mislabeled_df) > 0:
+#         print("\n" + "=" * 80)
+#         print("SAMPLE OF MIS-LABELED CASES (5 least confident errors)")
+#         print("=" * 80)
+#
+#         sample_df = mislabeled_df.head(5)[['sample_index', 'error_type',
+#                                            'prediction_confidence', 'text']]
+#         for idx, row in sample_df.iterrows():
+#             print(f"\nSample {row['sample_index']} - {row['error_type']}")
+#             print(f"Confidence: {row['prediction_confidence']:.4f}")
+#             print(f"Text preview: {row['text'][:200]}...")
+#             print("-" * 80)
+#
+#     # Generate visualizations
+#     from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
+#     plot_bert_confusion_matrix(y_test, best_y_pred,
+#                                model_name=f'Feature Fusion - {best_experiment["experiment"]}')
+#     plot_bert_roc_pr(y_test, best_y_proba,
+#                      model_name=f'Feature Fusion - {best_experiment["experiment"]}')
+#
+#     # Optional: Save best model
+#     # best_model.save_model("feature_fusion_model_best")
+#
+#     return comparison_df, best_model, X_text_test, X_feat_test, y_test, best_y_pred, best_y_proba, mislabeled_df
+#
+#
+#
+#
+#
+#
 # def main():
 #     """Main execution function"""
 #
@@ -938,6 +968,10 @@ if __name__ == "__main__":
 #     if RUN_BERT:
 #         comparison_df, best_model, X_test_text, y_test_bert, y_pred, y_proba = run_bert_model()
 #
+#     # Run Feature Fusion if configured
+#     if RUN_FEATURE_FUSION:
+#         comparison_df, best_model, X_text_test, X_feat_test, y_test_fusion, y_pred, y_proba,  mislabeled_df = run_feature_fusion_model()
+#
 #     print("\n" + "=" * 80)
 #     print("ALL TASKS COMPLETED")
 #     print("=" * 80)
@@ -945,3 +979,8 @@ if __name__ == "__main__":
 #
 # if __name__ == "__main__":
 #     main()
+#
+#
+#
+#
+#
