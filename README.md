@@ -1,4 +1,4 @@
-# Violent Extremist Organization Classification in Afghanistan Using Machine Learning
+# Violent Extremist Organization Classification in Afghanistan, Using Machine Learning
 
 **Version:** 1  
 **Year:** 2025  
@@ -6,17 +6,17 @@
 
 ---
 
-## Objective
+## Problem Statement
 This project develops supervised machine learning models to classify unattributed or ambiguously attributed violent events in Afghanistan among three organizations: **Taliban**, **al-Qaeda (AQ)**, and **ISIS-K** using ACLED data for **2015–2021** (through the U.S. withdrawal).
 
-### Goals
-- Build a reproducible pipeline for data ingestion, cleaning, feature engineering, modeling, and evaluation.  
-- Compare text-only, spatiotemporal-only, and multimodal (text + structured) models.  
-- Prioritize imbalanced-aware metrics (macro-F1, per-class PR-AUC) and model calibration for decision usefulness.  
-- Deliver a transparent classifier with interpretable outputs (feature importances/SHAP) and robust temporal validation.  
+### Project Goals
+- Inform qualitative analysis with ML enabled feature importance testing and explainable AI.
+- Test the feasibility of classifying attacks based on threat tactics/description (no spatial features). 
+- Deploy UI to assist in easy classification attacks
+
 
 ### Planned Phases
-1. **Preparation & EDA**: schema audit; class distribution; leakage checks; split design (train:2015–2019, test:2020–2021).  
+1. **Preparation & EDA**: schema audit; class distribution; leakage checks; split desig).  
 2. **Feature Engineering**: textual (ACLED `notes`), spatiotemporal, operational signatures, and conflict-phase markers.  
 3. **Training**: baselines (logistic regression, linear SVM), tree ensembles (RF/XGBoost), and text encoders (TF-IDF + linear, BERT).  
 4. **Validation**: grouped/temporal CV; calibration; ablations; province/period generalization checks.  
