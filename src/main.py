@@ -24,7 +24,7 @@ RUN_FEATURE_FUSION = False
 
 # XAI CONFIGURATION
 RUN_XAI = True  # Toggle XAI on/off
-XAI_MODE = 'quick'  # 'quick' or 'comprehensive'
+XAI_MODE = 'comprehensive'  # 'quick' or 'comprehensive'
 
 
 # ============================================================================
