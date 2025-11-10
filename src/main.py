@@ -7,13 +7,8 @@ from under_over import undersample_train
 from models import ModelTrainer
 from vis import *
 
-# NEW: Import XAI functions
-from xai_explanations import (
-    quick_xai,
-    explain_classical_models,
-    explain_bert_model,
-    analyze_errors_classical
-)
+
+
 
 # ============================================================================
 # CONFIGURATION: Choose what to run
@@ -95,36 +90,62 @@ def run_classical_models():
     # NEW: EXPLAINABLE AI ANALYSIS
     # ========================================================================
     if RUN_XAI:
+        from xai_explanations import (
+            explain_all_models,
+            explain_samples_with_lime
+        )
+
         # Get feature names
         feature_names = X_train.columns.tolist()
 
+        print("\n" + "=" * 80)
+        print("STARTING ENHANCED XAI ANALYSIS")
+        print("=" * 80)
+
         if XAI_MODE == 'quick':
-            # Quick XAI - essential plots only (~30 seconds)
-            quick_xai(trainer, X_train_und, X_test, y_test, feature_names)
+            # Quick mode: Feature importance only (no SHAP)
+            results = explain_all_models(
+                trainer=trainer,
+                X_train=X_train_und,
+                X_test=X_test,
+                y_test=y_test,
+                feature_names=feature_names,
+                include_shap=False,  # Skip SHAP for speed
+                top_n=15
+            )
 
         elif XAI_MODE == 'comprehensive':
-            # Comprehensive XAI - detailed analysis (~2-5 minutes)
-            explain_classical_models(
+            # Comprehensive mode: Everything including SHAP
+            results = explain_all_models(
                 trainer=trainer,
                 X_train=X_train_und,
                 X_test=X_test,
                 y_test=y_test,
                 feature_names=feature_names,
-                sample_indices=[0, 1, 2, 5, 10]
+                include_shap=True,  # Include SHAP analysis
+                top_n=20
             )
 
-            # Optional: Error analysis
-            analyze_errors_classical(
+            # Optional: LIME for specific samples (only if you need sample-level detail)
+            print("\n(Optional) Explaining specific samples with LIME...")
+            explain_samples_with_lime(
                 trainer=trainer,
                 X_train=X_train_und,
                 X_test=X_test,
-                y_test=y_test,
                 feature_names=feature_names,
-                n_errors=5
+                sample_indices=[0, 1, 2],  # Just a few samples
             )
-    # ========================================================================
 
-    return results_df, trainer, X_test, y_test
+        print("\n" + "=" * 80)
+        print("XAI ANALYSIS COMPLETE!")
+        print("Check the 'xai_explanations/' directory for:")
+        print("  • all_feature_importances.csv - Raw importance from all models")
+        print("  • aggregated_feature_importance.csv - Summary statistics")
+        print("  • global_shap_importance.csv - SHAP-based importance")
+        print("  • consensus_features.csv - Features important across models")
+        print("  • feature_performance_correlation.csv - Link to model performance")
+        print("  • Multiple visualization plots (.png)")
+        print("=" * 80 + "\n")
 
 
 def run_bert_model():
@@ -224,6 +245,8 @@ def run_bert_model():
     # NEW: EXPLAINABLE AI FOR BERT
     # ========================================================================
     if RUN_XAI:
+        from xai_explanations import explain_bert_model
+
         explain_bert_model(
             bert_model=bert_model,
             X_test_text=X_test_text,

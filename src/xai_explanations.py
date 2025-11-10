@@ -1,18 +1,19 @@
 """
-eXplainable AI (XAI) Module
-Compatible with your exact ModelTrainer, BERTClassifier, and Feature Fusion models
+Enhanced eXplainable AI (XAI) Module
+Provides GLOBAL feature importance analysis across ALL models
+
+Key improvements:
+1. Feature importance for ALL tree-based models (not just best)
+2. Global aggregated SHAP values across all models
+3. Comparative feature importance visualization
+4. Summary statistics and consensus features
+5. Optional LIME for specific sample analysis
 
 Usage:
-    from xai_explanations import explain_classical_models, explain_bert_model, quick_xai
+    from xai_explanations_enhanced import explain_all_models, compare_feature_importance
 
-    # After training classical models
-    explain_classical_models(trainer, X_train, X_test, y_test, feature_names)
-
-    # Or for quick summary
-    quick_xai(trainer, X_train, X_test, y_test, feature_names)
-
-    # After training BERT
-    explain_bert_model(bert_model, X_test_text, y_test)
+    # After training and evaluation
+    explain_all_models(trainer, X_train, X_test, y_test, feature_names)
 """
 
 import numpy as np
@@ -20,7 +21,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -32,86 +33,498 @@ if not os.path.exists(XAI_DIR):
 
 
 # ============================================================================
-# CLASSICAL MODEL EXPLANATIONS
+# GLOBAL FEATURE IMPORTANCE - ALL MODELS
 # ============================================================================
 
-def plot_feature_importance_classical(model, feature_names, model_name='Model',
-                                      top_n=20, save_dir=XAI_DIR):
-    """Plot feature importance for tree-based models"""
-    if not hasattr(model, 'feature_importances_'):
-        print(f"{model_name} does not have feature_importances_")
+def extract_all_feature_importances(trainer, feature_names, save_dir=XAI_DIR):
+    """
+    Extract feature importance from ALL tree-based models
+
+    Returns:
+        DataFrame with feature importances from all models
+    """
+    print("\n" + "=" * 80)
+    print("EXTRACTING FEATURE IMPORTANCE FROM ALL TREE-BASED MODELS")
+    print("=" * 80)
+
+    importance_data = []
+
+    # Iterate through all trained models
+    for model_key, (model, preprocessors) in trainer.trained_models.items():
+        # Check if model has feature_importances_
+        if hasattr(model, 'feature_importances_'):
+            importances = model.feature_importances_
+
+            # Store as a record
+            for feat_name, importance in zip(feature_names, importances):
+                importance_data.append({
+                    'model': model_key,
+                    'feature': feat_name,
+                    'importance': importance
+                })
+
+            print(f"✓ Extracted from {model_key}")
+        else:
+            print(f"✗ Skipped {model_key} (no feature_importances_)")
+
+    if not importance_data:
+        print("\nNo tree-based models found!")
         return None
 
-    importances = model.feature_importances_
-    indices = np.argsort(importances)[::-1][:top_n]
+    df_importance = pd.DataFrame(importance_data)
 
-    plt.figure(figsize=(12, 8))
-    plt.barh(range(top_n), importances[indices], color='steelblue')
-    plt.yticks(range(top_n), [feature_names[i] for i in indices])
-    plt.xlabel('Feature Importance', fontsize=12)
-    plt.title(f'Top {top_n} Features: {model_name}', fontsize=14, fontweight='bold')
-    plt.gca().invert_yaxis()
+    # Save raw data
+    csv_path = os.path.join(save_dir, 'all_feature_importances.csv')
+    df_importance.to_csv(csv_path, index=False)
+    print(f"\n✓ Saved raw importance data to: {csv_path}")
+
+    return df_importance
+
+
+def aggregate_feature_importance(df_importance, top_n=25, save_dir=XAI_DIR):
+    """
+    Aggregate feature importance across all models
+
+    Creates:
+    1. Mean importance across models
+    2. Std deviation (shows consistency)
+    3. Frequency (how many models found it important)
+    """
+    print("\n" + "=" * 80)
+    print("AGGREGATING FEATURE IMPORTANCE")
+    print("=" * 80)
+
+    # Calculate statistics per feature
+    agg_stats = df_importance.groupby('feature').agg({
+        'importance': ['mean', 'std', 'min', 'max', 'count']
+    }).round(4)
+
+    agg_stats.columns = ['mean_importance', 'std_importance', 'min_importance',
+                         'max_importance', 'model_count']
+    agg_stats = agg_stats.sort_values('mean_importance', ascending=False)
+
+    # Save aggregated stats
+    csv_path = os.path.join(save_dir, 'aggregated_feature_importance.csv')
+    agg_stats.to_csv(csv_path)
+    print(f"\n✓ Saved aggregated importance to: {csv_path}")
+
+    # Print top features
+    print(f"\n{'=' * 80}")
+    print(f"TOP {min(top_n, len(agg_stats))} MOST IMPORTANT FEATURES (Averaged Across All Models)")
+    print('=' * 80)
+    print(agg_stats.head(top_n).to_string())
+
+    return agg_stats
+
+
+def plot_comparative_feature_importance(df_importance, top_n=20, save_dir=XAI_DIR):
+    """
+    Create visualizations comparing feature importance across models
+    """
+    print("\n" + "=" * 80)
+    print("CREATING COMPARATIVE VISUALIZATIONS")
+    print("=" * 80)
+
+    # 1. Heatmap: Features vs Models
+    pivot_table = df_importance.pivot_table(
+        values='importance',
+        index='feature',
+        columns='model',
+        aggfunc='mean',
+        fill_value=0
+    )
+
+    # Get top features by mean importance
+    top_features = pivot_table.mean(axis=1).nlargest(top_n).index
+    pivot_subset = pivot_table.loc[top_features]
+
+    plt.figure(figsize=(14, 10))
+    sns.heatmap(pivot_subset, annot=False, cmap='YlOrRd', cbar_kws={'label': 'Importance'})
+    plt.title(f'Feature Importance Heatmap: Top {top_n} Features Across All Models',
+              fontsize=14, fontweight='bold', pad=20)
+    plt.xlabel('Model', fontsize=12)
+    plt.ylabel('Feature', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
 
-    save_path = os.path.join(save_dir, f'feature_importance_{model_name}.png')
+    save_path = os.path.join(save_dir, 'feature_importance_heatmap.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Saved: {save_path}")
+    print(f"✓ Saved heatmap: {save_path}")
     plt.close()
 
-    return pd.DataFrame({
-        'feature': [feature_names[i] for i in indices],
-        'importance': importances[indices]
-    })
+    # 2. Box plot: Distribution of importance for top features
+    top_features_list = pivot_table.mean(axis=1).nlargest(15).index.tolist()
+    df_top = df_importance[df_importance['feature'].isin(top_features_list)]
+
+    plt.figure(figsize=(14, 8))
+    df_top_sorted = df_top.groupby('feature')['importance'].mean().sort_values(ascending=False)
+    order = df_top_sorted.index.tolist()
+
+    sns.boxplot(data=df_top, x='importance', y='feature', order=order, palette='Set2')
+    plt.title('Feature Importance Distribution Across Models (Top 15)',
+              fontsize=14, fontweight='bold')
+    plt.xlabel('Importance', fontsize=12)
+    plt.ylabel('Feature', fontsize=12)
+    plt.tight_layout()
+
+    save_path = os.path.join(save_dir, 'feature_importance_boxplot.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved boxplot: {save_path}")
+    plt.close()
+
+    # 3. Bar plot: Mean importance with error bars
+    agg = df_importance.groupby('feature')['importance'].agg(['mean', 'std']).sort_values('mean', ascending=False).head(
+        top_n)
+
+    plt.figure(figsize=(12, 8))
+    plt.barh(range(len(agg)), agg['mean'].values, xerr=agg['std'].values,
+             color='steelblue', alpha=0.7, capsize=5)
+    plt.yticks(range(len(agg)), agg.index)
+    plt.xlabel('Mean Importance ± Std', fontsize=12)
+    plt.title(f'Top {top_n} Features: Mean Importance Across All Models',
+              fontsize=14, fontweight='bold')
+    plt.gca().invert_yaxis()
+    plt.grid(axis='x', alpha=0.3)
+    plt.tight_layout()
+
+    save_path = os.path.join(save_dir, 'mean_feature_importance.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved mean importance plot: {save_path}")
+    plt.close()
 
 
-def explain_with_shap_classical(model, X_train, X_test, feature_names,
-                                model_name='Model', max_display=20, save_dir=XAI_DIR):
-    """Generate SHAP explanations for tree-based models"""
+def identify_consensus_features(df_importance, top_n=15, threshold=0.01):
+    """
+    Identify features that are consistently important across models
+
+    Consensus = features in top N for most models OR above threshold in all models
+    """
+    print("\n" + "=" * 80)
+    print("IDENTIFYING CONSENSUS FEATURES")
+    print("=" * 80)
+
+    consensus = []
+
+    # For each model, get top N features
+    for model_name, group in df_importance.groupby('model'):
+        top_features = group.nlargest(top_n, 'importance')['feature'].tolist()
+        consensus.extend(top_features)
+
+    # Count how many times each feature appears in top N
+    from collections import Counter
+    feature_counts = Counter(consensus)
+
+    # Get features that appear in top N for at least 50% of models
+    num_models = df_importance['model'].nunique()
+    consensus_threshold = num_models * 0.5
+
+    consensus_features = {feat: count for feat, count in feature_counts.items()
+                          if count >= consensus_threshold}
+
+    print(f"\nFound {len(consensus_features)} consensus features")
+    print(f"(Features appearing in top {top_n} for ≥50% of models)\n")
+
+    # Create a sorted DataFrame
+    consensus_df = pd.DataFrame([
+        {'feature': feat, 'appearances': count, 'percentage': count / num_models * 100}
+        for feat, count in sorted(consensus_features.items(), key=lambda x: x[1], reverse=True)
+    ])
+
+    print(consensus_df.to_string(index=False))
+
+    # Save
+    csv_path = os.path.join(XAI_DIR, 'consensus_features.csv')
+    consensus_df.to_csv(csv_path, index=False)
+    print(f"\n✓ Saved consensus features to: {csv_path}")
+
+    return consensus_df
+
+
+# ============================================================================
+# GLOBAL SHAP ANALYSIS
+# ============================================================================
+
+def global_shap_analysis(trainer, X_train, X_test, feature_names,
+                         top_n=20, save_dir=XAI_DIR):
+    """
+    Run SHAP analysis on ALL tree-based models and aggregate results
+    """
     try:
         import shap
     except ImportError:
-        print("SHAP not installed. Run: pip install shap --break-system-packages")
-        return None, None
+        print("\nSHAP not installed. Run: pip install shap --break-system-packages")
+        return None
 
-    print(f"Generating SHAP explanations for {model_name}...")
+    print("\n" + "=" * 80)
+    print("GLOBAL SHAP ANALYSIS ACROSS ALL TREE-BASED MODELS")
+    print("=" * 80)
 
-    # Create explainer
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X_test)
+    all_shap_values = []
+    model_names = []
 
-    # For binary classification, get positive class
-    if isinstance(shap_values, list):
-        shap_values = shap_values[1]
+    # Run SHAP for each tree-based model
+    for model_key, (model, preprocessors) in trainer.trained_models.items():
+        if hasattr(model, 'feature_importances_'):
+            print(f"\n→ Computing SHAP for {model_key}...")
 
-    # Summary plot
+            # Preprocess data
+            X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
+
+            # Create explainer and compute SHAP values
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(X_test_proc)
+
+            # For binary classification, get positive class
+            if isinstance(shap_values, list):
+                shap_values = shap_values[1]
+
+            all_shap_values.append(shap_values)
+            model_names.append(model_key)
+            print(f"  ✓ SHAP values shape: {shap_values.shape}")
+
+    if not all_shap_values:
+        print("\nNo tree-based models found for SHAP!")
+        return None
+
+    # Aggregate SHAP values: Mean absolute value across models
+    print(f"\n{'=' * 80}")
+    print(f"AGGREGATING SHAP VALUES FROM {len(all_shap_values)} MODELS")
+    print('=' * 80)
+
+    # Calculate mean |SHAP| for each feature across all models
+    mean_abs_shap = np.mean([np.abs(sv) for sv in all_shap_values], axis=0)
+
+    # Get global feature importance (mean across samples and models)
+    global_importance = np.mean(mean_abs_shap, axis=0)
+
+    # Create summary DataFrame
+    shap_summary = pd.DataFrame({
+        'feature': feature_names,
+        'mean_abs_shap': global_importance
+    }).sort_values('mean_abs_shap', ascending=False)
+
+    print(f"\nTop {min(top_n, len(shap_summary))} Features by SHAP:")
+    print(shap_summary.head(top_n).to_string(index=False))
+
+    # Save
+    csv_path = os.path.join(save_dir, 'global_shap_importance.csv')
+    shap_summary.to_csv(csv_path, index=False)
+    print(f"\n✓ Saved SHAP summary to: {csv_path}")
+
+    # Visualize: Aggregated SHAP bar plot
     plt.figure(figsize=(12, 8))
-    shap.summary_plot(shap_values, X_test, feature_names=feature_names,
-                      max_display=max_display, show=False)
-    plt.title(f'SHAP Summary: {model_name}', fontsize=14, fontweight='bold', pad=20)
+    top_features = shap_summary.head(top_n)
+    plt.barh(range(len(top_features)), top_features['mean_abs_shap'].values, color='coral')
+    plt.yticks(range(len(top_features)), top_features['feature'].values)
+    plt.xlabel('Mean |SHAP| (Aggregated Across All Models)', fontsize=12)
+    plt.title(f'Global SHAP Feature Importance (Top {top_n})',
+              fontsize=14, fontweight='bold')
+    plt.gca().invert_yaxis()
+    plt.grid(axis='x', alpha=0.3)
     plt.tight_layout()
-    save_path = os.path.join(save_dir, f'shap_summary_{model_name}.png')
+
+    save_path = os.path.join(save_dir, 'global_shap_bar.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Saved: {save_path}")
+    print(f"✓ Saved SHAP bar plot: {save_path}")
     plt.close()
 
-    # Bar plot
-    plt.figure(figsize=(12, 8))
-    shap.summary_plot(shap_values, X_test, feature_names=feature_names,
-                      plot_type='bar', max_display=max_display, show=False)
-    plt.title(f'SHAP Importance: {model_name}', fontsize=14, fontweight='bold', pad=20)
+    return shap_summary, all_shap_values, model_names
+
+
+def compare_importance_methods(feature_imp_agg, shap_summary, top_n=15, save_dir=XAI_DIR):
+    """
+    Compare built-in feature importance vs SHAP importance
+    """
+    print("\n" + "=" * 80)
+    print("COMPARING FEATURE IMPORTANCE METHODS")
+    print("=" * 80)
+
+    # Merge the two summaries
+    merged = feature_imp_agg.reset_index().merge(
+        shap_summary[['feature', 'mean_abs_shap']],
+        on='feature',
+        how='outer'
+    )
+
+    # Normalize both to 0-1 scale for comparison
+    merged['norm_builtin'] = merged['mean_importance'] / merged['mean_importance'].max()
+    merged['norm_shap'] = merged['mean_abs_shap'] / merged['mean_abs_shap'].max()
+
+    # Get top features by either method
+    top_by_builtin = set(merged.nlargest(top_n, 'norm_builtin')['feature'])
+    top_by_shap = set(merged.nlargest(top_n, 'norm_shap')['feature'])
+    top_features = list(top_by_builtin.union(top_by_shap))
+
+    # Create comparison plot
+    df_plot = merged[merged['feature'].isin(top_features)].copy()
+    df_plot = df_plot.sort_values('norm_builtin', ascending=False)
+
+    fig, ax = plt.subplots(figsize=(14, 10))
+    x = np.arange(len(df_plot))
+    width = 0.35
+
+    ax.barh(x - width / 2, df_plot['norm_builtin'], width, label='Built-in Importance', color='steelblue', alpha=0.8)
+    ax.barh(x + width / 2, df_plot['norm_shap'], width, label='SHAP Importance', color='coral', alpha=0.8)
+
+    ax.set_yticks(x)
+    ax.set_yticklabels(df_plot['feature'])
+    ax.set_xlabel('Normalized Importance', fontsize=12)
+    ax.set_title('Feature Importance: Built-in vs SHAP', fontsize=14, fontweight='bold')
+    ax.legend()
+    ax.invert_yaxis()
+    ax.grid(axis='x', alpha=0.3)
     plt.tight_layout()
-    save_path = os.path.join(save_dir, f'shap_bar_{model_name}.png')
+
+    save_path = os.path.join(save_dir, 'importance_comparison.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Saved: {save_path}")
+    print(f"✓ Saved comparison plot: {save_path}")
     plt.close()
 
-    return shap_values, explainer
+    # Correlation between methods
+    corr = merged[['norm_builtin', 'norm_shap']].corr().iloc[0, 1]
+    print(f"\nCorrelation between methods: {corr:.3f}")
+
+    # Agreement analysis
+    agreement = len(top_by_builtin.intersection(top_by_shap))
+    print(f"Features in top {top_n} for both methods: {agreement}/{top_n}")
+
+    return merged
 
 
-def explain_with_lime_classical(model, X_train, X_test, feature_names,
-                                sample_idx=0, num_features=20,
-                                model_name='Model', save_dir=XAI_DIR):
-    """Generate LIME explanation for a single prediction"""
+# ============================================================================
+# MODEL PERFORMANCE CORRELATION WITH FEATURES
+# ============================================================================
+
+def analyze_feature_model_correlation(trainer, df_importance, save_dir=XAI_DIR):
+    """
+    Analyze if certain features correlate with better model performance
+    """
+    print("\n" + "=" * 80)
+    print("ANALYZING FEATURE-PERFORMANCE CORRELATION")
+    print("=" * 80)
+
+    # Get model performance
+    results_df = trainer.get_results()
+
+    # Merge with feature importance
+    merged = df_importance.merge(
+        results_df[['model', 'test_f1_macro', 'cv_score']],
+        on='model',
+        how='left'
+    )
+
+    # For each feature, correlate its importance with model performance
+    correlations = []
+    for feature in merged['feature'].unique():
+        feature_data = merged[merged['feature'] == feature]
+
+        if len(feature_data) > 1:
+            corr_test = feature_data['importance'].corr(feature_data['test_f1_macro'])
+            corr_cv = feature_data['importance'].corr(feature_data['cv_score'])
+
+            correlations.append({
+                'feature': feature,
+                'corr_with_test_f1': corr_test,
+                'corr_with_cv_score': corr_cv,
+                'mean_importance': feature_data['importance'].mean()
+            })
+
+    corr_df = pd.DataFrame(correlations).sort_values('corr_with_test_f1', ascending=False)
+
+    print("\nFeatures Most Correlated with Performance:")
+    print(corr_df.head(10).to_string(index=False))
+
+    # Save
+    csv_path = os.path.join(save_dir, 'feature_performance_correlation.csv')
+    corr_df.to_csv(csv_path, index=False)
+    print(f"\n✓ Saved correlations to: {csv_path}")
+
+    return corr_df
+
+
+# ============================================================================
+# MASTER FUNCTION: EXPLAIN ALL MODELS
+# ============================================================================
+
+def explain_all_models(trainer, X_train, X_test, y_test, feature_names,
+                       include_shap=True, top_n=20, save_dir=XAI_DIR):
+    """
+    COMPREHENSIVE XAI: Analyze ALL models globally
+
+    This is your main function - it does everything!
+
+    Args:
+        trainer: ModelTrainer instance after fit_all() and evaluate()
+        X_train: Training features (original, not preprocessed)
+        X_test: Test features
+        y_test: Test labels
+        feature_names: List of feature names
+        include_shap: Whether to run SHAP (slower but more accurate)
+        top_n: Number of top features to display
+        save_dir: Output directory
+
+    Returns:
+        Dictionary with all analysis results
+    """
+    print("\n" + "=" * 80)
+    print("COMPREHENSIVE XAI: GLOBAL ANALYSIS OF ALL MODELS")
+    print("=" * 80)
+
+    results = {}
+
+    # 1. Extract feature importance from all tree models
+    df_importance = extract_all_feature_importances(trainer, feature_names, save_dir)
+
+    if df_importance is not None:
+        # 2. Aggregate and analyze
+        feature_imp_agg = aggregate_feature_importance(df_importance, top_n=top_n, save_dir=save_dir)
+        results['feature_importance_agg'] = feature_imp_agg
+
+        # 3. Visualize comparisons
+        plot_comparative_feature_importance(df_importance, top_n=top_n, save_dir=save_dir)
+
+        # 4. Identify consensus features
+        consensus_features = identify_consensus_features(df_importance, top_n=15)
+        results['consensus_features'] = consensus_features
+
+        # 5. Correlate with model performance
+        corr_df = analyze_feature_model_correlation(trainer, df_importance, save_dir)
+        results['feature_performance_corr'] = corr_df
+
+        # 6. SHAP analysis (optional, slower)
+        if include_shap:
+            shap_summary, shap_values, model_names = global_shap_analysis(
+                trainer, X_train, X_test, feature_names, top_n=top_n, save_dir=save_dir
+            )
+
+            if shap_summary is not None:
+                results['shap_summary'] = shap_summary
+                results['shap_values'] = shap_values
+
+                # Compare methods
+                comparison = compare_importance_methods(
+                    feature_imp_agg, shap_summary, top_n=15, save_dir=save_dir
+                )
+                results['importance_comparison'] = comparison
+
+    print("\n" + "=" * 80)
+    print("GLOBAL XAI COMPLETE!")
+    print(f"All outputs saved to: {save_dir}/")
+    print("=" * 80 + "\n")
+
+    return results
+
+
+# ============================================================================
+# OPTIONAL: INDIVIDUAL SAMPLE EXPLANATION (LIME)
+# ============================================================================
+
+def explain_samples_with_lime(trainer, X_train, X_test, feature_names,
+                              sample_indices=[0, 1, 2], save_dir=XAI_DIR):
+    """
+    Optional: Explain specific samples with LIME
+    (Use this AFTER global analysis if you need to understand specific predictions)
+    """
     try:
         import lime
         import lime.lime_tabular
@@ -119,13 +532,23 @@ def explain_with_lime_classical(model, X_train, X_test, feature_names,
         print("LIME not installed. Run: pip install lime --break-system-packages")
         return None
 
-    print(f"Generating LIME explanation for {model_name} (sample {sample_idx})...")
+    print("\n" + "=" * 80)
+    print(f"LIME EXPLANATIONS FOR {len(sample_indices)} SAMPLES")
+    print("=" * 80)
+
+    # Get best model
+    best_model, preprocessors, best_stats = trainer.get_best_model(metric='test_f1_macro')
+    model_name = best_stats['model'].replace('_', ' ').title()
+
+    # Preprocess
+    X_train_proc = trainer._apply_preprocessing(X_train, preprocessors, fit=False)
+    X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
 
     # Convert to numpy if needed
-    X_train_np = X_train.values if isinstance(X_train, pd.DataFrame) else X_train
-    X_test_np = X_test.values if isinstance(X_test, pd.DataFrame) else X_test
+    X_train_np = X_train_proc.values if isinstance(X_train_proc, pd.DataFrame) else X_train_proc
+    X_test_np = X_test_proc.values if isinstance(X_test_proc, pd.DataFrame) else X_test_proc
 
-    # Create explainer
+    # Create LIME explainer
     explainer = lime.lime_tabular.LimeTabularExplainer(
         X_train_np,
         feature_names=feature_names,
@@ -133,101 +556,46 @@ def explain_with_lime_classical(model, X_train, X_test, feature_names,
         mode='classification'
     )
 
-    # Explain instance
-    if hasattr(model, 'predict_proba'):
-        explanation = explainer.explain_instance(
-            X_test_np[sample_idx],
-            model.predict_proba,
-            num_features=num_features
-        )
-    else:
-        def predict_wrapper(X):
-            preds = model.predict(X)
-            return np.column_stack([1 - preds, preds])
+    # Explain each sample
+    for idx in sample_indices:
+        if idx < len(X_test_np):
+            print(f"\n→ Explaining sample {idx}...")
 
-        explanation = explainer.explain_instance(
-            X_test_np[sample_idx],
-            predict_wrapper,
-            num_features=num_features
-        )
-
-    # Save plot
-    fig = explanation.as_pyplot_figure()
-    plt.title(f'LIME - Sample {sample_idx}: {model_name}', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    save_path = os.path.join(save_dir, f'lime_sample_{sample_idx}_{model_name}.png')
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Saved: {save_path}")
-    plt.close()
-
-    return explanation
-
-
-def explain_classical_models(trainer, X_train, X_test, y_test, feature_names,
-                             sample_indices=[0, 1, 2], save_dir=XAI_DIR):
-    """
-    Comprehensive XAI for classical models trained with ModelTrainer
-
-    Args:
-        trainer: Your ModelTrainer instance (after fit_all() and evaluate())
-        X_train: Training features (original, not preprocessed)
-        X_test: Test features (original, not preprocessed)
-        y_test: Test labels
-        feature_names: List of feature names
-        sample_indices: Indices of samples to explain with LIME
-        save_dir: Directory to save plots
-    """
-    print("\n" + "=" * 80)
-    print("EXPLAINABLE AI - CLASSICAL MODELS")
-    print("=" * 80)
-
-    # Get best model
-    best_model, preprocessors, best_stats = trainer.get_best_model(metric='test_f1_macro')
-    model_name = best_stats['model'].replace('_', ' ').title()
-
-    print(f"\nBest Model: {model_name}")
-    print(f"Test F1 Macro: {best_stats['test_f1_macro']:.4f}")
-
-    # Preprocess data (same way trainer does it)
-    X_train_proc = trainer._apply_preprocessing(X_train, preprocessors, fit=False)
-    X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
-
-    # 1. Feature Importance
-    print("\n--- Feature Importance ---")
-    importance_df = plot_feature_importance_classical(
-        best_model, feature_names, model_name=model_name, top_n=20, save_dir=save_dir
-    )
-    if importance_df is not None:
-        print("\nTop 10 Features:")
-        print(importance_df.head(10).to_string(index=False))
-
-    # 2. SHAP Explanations (if tree-based)
-    model_type = type(best_model).__name__.lower()
-    if any(x in model_type for x in ['forest', 'xgb', 'gradient', 'tree']):
-        print("\n--- SHAP Explanations ---")
-        shap_values, explainer = explain_with_shap_classical(
-            best_model, X_train_proc, X_test_proc, feature_names,
-            model_name=model_name, max_display=20, save_dir=save_dir
-        )
-    else:
-        print(f"\n{model_name} is not tree-based, skipping SHAP (use LIME instead)")
-        shap_values, explainer = None, None
-
-    # 3. LIME Explanations
-    print("\n--- LIME Explanations ---")
-    for idx in sample_indices[:3]:
-        if idx < len(X_test_proc):
-            explain_with_lime_classical(
-                best_model, X_train_proc, X_test_proc, feature_names,
-                sample_idx=idx, num_features=15,
-                model_name=model_name, save_dir=save_dir
+            explanation = explainer.explain_instance(
+                X_test_np[idx],
+                best_model.predict_proba,
+                num_features=20
             )
 
-    print("\n" + "=" * 80)
-    print(f"XAI outputs saved to: {save_dir}/")
-    print("=" * 80 + "\n")
+            # Save plot
+            fig = explanation.as_pyplot_figure()
+            plt.title(f'LIME Explanation: {model_name} (Sample {idx})',
+                      fontsize=14, fontweight='bold')
+            plt.tight_layout()
 
-    return importance_df, shap_values, explainer
+            save_path = os.path.join(save_dir, f'lime_sample_{idx}.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"  ✓ Saved: {save_path}")
+            plt.close()
+
+    print("\n" + "=" * 80)
+
+
+# ============================================================================
+# USAGE EXAMPLE
+# ============================================================================
+
+if __name__ == "__main__":
+    print(__doc__)
+    print("\nEnhanced XAI Module Loaded Successfully!")
+    print("\nMain function: explain_all_models()")
+    print("\nTo install required packages:")
+    print("  pip install shap lime matplotlib seaborn --break-system-packages")
+
+
+
+
+
 
 
 # ============================================================================
@@ -369,122 +737,10 @@ def explain_bert_model(bert_model, X_test_text, y_test, sample_indices=[0, 1, 2]
 
 
 # ============================================================================
-# ERROR ANALYSIS
-# ============================================================================
-
-def analyze_errors_classical(trainer, X_train, X_test, y_test, feature_names,
-                             n_errors=5, save_dir=XAI_DIR):
-    """
-    Analyze misclassified samples with XAI
-
-    Args:
-        trainer: ModelTrainer instance
-        X_train: Training features
-        X_test: Test features
-        y_test: Test labels
-        feature_names: Feature names
-        n_errors: Number of errors to analyze
-        save_dir: Directory to save plots
-    """
-    print("\n" + "=" * 80)
-    print("ERROR ANALYSIS WITH XAI")
-    print("=" * 80)
-
-    # Get best model
-    best_model, preprocessors, best_stats = trainer.get_best_model(metric='test_f1_macro')
-    model_name = best_stats['model'].replace('_', ' ').title()
-
-    # Preprocess
-    X_train_proc = trainer._apply_preprocessing(X_train, preprocessors, fit=False)
-    X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
-
-    # Get predictions
-    y_pred = best_model.predict(X_test_proc)
-
-    # Find errors
-    error_mask = y_test.values != y_pred if hasattr(y_test, 'values') else y_test != y_pred
-    error_indices = np.where(error_mask)[0]
-
-    print(f"\nTotal errors: {len(error_indices)}")
-    print(f"Analyzing first {min(n_errors, len(error_indices))} errors...")
-
-    # Explain each error
-    for i, idx in enumerate(error_indices[:n_errors]):
-        true_label = y_test.iloc[idx] if hasattr(y_test, 'iloc') else y_test[idx]
-        pred_label = y_pred[idx]
-
-        print(f"\nError {i + 1}: True={true_label}, Predicted={pred_label}")
-
-        explain_with_lime_classical(
-            best_model, X_train_proc, X_test_proc, feature_names,
-            sample_idx=idx, num_features=15,
-            model_name=f"{model_name}_error_{i}", save_dir=save_dir
-        )
-
-    print("\n" + "=" * 80)
-    print(f"Error analysis saved to: {save_dir}/")
-    print("=" * 80 + "\n")
-
-
-# ============================================================================
-# QUICK XAI - CONVENIENCE FUNCTION
-# ============================================================================
-
-def quick_xai(trainer, X_train, X_test, y_test, feature_names, save_dir=XAI_DIR):
-    """
-    Quick XAI summary - essential explanations only
-
-    Args:
-        trainer: ModelTrainer instance
-        X_train: Training features
-        X_test: Test features
-        y_test: Test labels
-        feature_names: Feature names
-        save_dir: Directory to save plots
-    """
-    print("\n" + "=" * 80)
-    print("QUICK XAI SUMMARY")
-    print("=" * 80)
-
-    # Get best model
-    best_model, preprocessors, best_stats = trainer.get_best_model(metric='test_f1_macro')
-    model_name = best_stats['model'].replace('_', ' ').title()
-
-    # Preprocess
-    X_train_proc = trainer._apply_preprocessing(X_train, preprocessors, fit=False)
-    X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
-
-    # Feature importance
-    plot_feature_importance_classical(
-        best_model, feature_names, model_name=model_name, top_n=15, save_dir=save_dir
-    )
-
-    # SHAP if tree-based
-    model_type = type(best_model).__name__.lower()
-    if any(x in model_type for x in ['forest', 'xgb', 'gradient', 'tree']):
-        explain_with_shap_classical(
-            best_model, X_train_proc, X_test_proc, feature_names,
-            model_name=model_name, max_display=15, save_dir=save_dir
-        )
-
-    # One LIME example
-    explain_with_lime_classical(
-        best_model, X_train_proc, X_test_proc, feature_names,
-        sample_idx=0, num_features=15,
-        model_name=model_name, save_dir=save_dir
-    )
-
-    print("\n" + "=" * 80)
-    print(f"Quick XAI complete! Check: {save_dir}/")
-    print("=" * 80 + "\n")
-
-
-# ============================================================================
 # USAGE EXAMPLE
 # ============================================================================
 
 if __name__ == "__main__":
-    print(__doc__)
-    print("\nXAI Module Loaded Successfully!")
+    print("Enhanced XAI Module with BERT Support Loaded Successfully!")
     print("\nTo install required packages:")
-    print("  pip install shap lime --break-system-packages")
+    print("  pip install shap lime transformers --break-system-packages")

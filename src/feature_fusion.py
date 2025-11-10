@@ -75,6 +75,7 @@ class BERTWithManualFeatures(nn.Module):
     def __init__(self, bert_model_name='bert-base-uncased',
                  num_manual_features=10,
                  hidden_dim=128,
+
                  dropout=0.3):
         """
         Args:
@@ -709,3 +710,101 @@ class BERTFeatureFusionClassifier:
 
         self.tokenizer = BertTokenizer.from_pretrained(path)
         print(f"Model loaded from {path}")
+
+
+# ============================================================================
+# WRAPPER FUNCTION FOR EASY TRAINING
+# ============================================================================
+
+def train_fusion_model(X_text_train, X_features_train, y_train,
+                       X_text_test, X_features_test, y_test,
+                       model_name='bert-base-uncased',
+                       max_length=256,
+                       batch_size=4,
+                       learning_rate=2e-5,
+                       epochs=5,
+                       use_class_weights=True,
+                       use_balanced_sampler=True,
+                       focal_loss=False):
+    """
+    Wrapper function to train BERT Feature Fusion model
+
+    Args:
+        X_text_train: Training text data
+        X_features_train: Training manual features
+        y_train: Training labels
+        X_text_test: Test text data
+        X_features_test: Test manual features
+        y_test: Test labels
+        model_name: BERT model name
+        max_length: Maximum sequence length
+        batch_size: Batch size for training
+        learning_rate: Learning rate
+        epochs: Number of epochs
+        use_class_weights: Whether to use class weights
+        use_balanced_sampler: Whether to use balanced sampling
+        focal_loss: Whether to use focal loss
+
+    Returns:
+        Tuple of (trained_model, results_dict)
+    """
+    from sklearn.model_selection import train_test_split
+
+    print("\n" + "=" * 80)
+    print("BERT FEATURE FUSION MODEL - TRAINING WRAPPER")
+    print("=" * 80)
+
+    # Create the classifier
+    fusion_classifier = BERTFeatureFusionClassifier(
+        model_name=model_name,
+        max_length=max_length,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        epochs=epochs,
+        random_state=42,
+        use_class_weights=use_class_weights,
+        use_balanced_sampler=use_balanced_sampler,
+        focal_loss=focal_loss
+    )
+
+    # Split training data into train/val
+    X_text_tr, X_text_val, X_feat_tr, X_feat_val, y_tr, y_val = train_test_split(
+        X_text_train, X_features_train, y_train,
+        test_size=0.2,
+        random_state=42,
+        stratify=y_train
+    )
+
+    print(f"Train size: {len(X_text_tr)}")
+    print(f"Val size: {len(X_text_val)}")
+    print(f"Test size: {len(X_text_test)}")
+    print(f"Manual features: {X_features_train.shape[1]}")
+
+    # Train the model
+    fusion_classifier.fit(
+        X_text_tr, X_feat_tr, y_tr,
+        X_text_val, X_feat_val, y_val
+    )
+
+    # Find optimal threshold
+    fusion_classifier.find_optimal_threshold(X_text_val, X_feat_val, y_val)
+
+    # Evaluate on test set
+    results, y_pred, y_proba = fusion_classifier.evaluate(
+        X_text_test, X_features_test, y_test
+    )
+
+    print("\n" + "=" * 80)
+    print("TRAINING COMPLETE!")
+    print("=" * 80 + "\n")
+
+    return fusion_classifier, results
+
+
+# Example usage (if run directly):
+if __name__ == "__main__":
+    print("Feature Fusion Module Loaded Successfully!")
+    print("\nTo train a fusion model:")
+    print("  from feature_fusion import train_fusion_model")
+    print("  model, results = train_fusion_model(X_text_train, X_feat_train, y_train,")
+    print("                                      X_text_test, X_feat_test, y_test)")
