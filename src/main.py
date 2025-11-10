@@ -7,9 +7,6 @@ from under_over import undersample_train
 from models import ModelTrainer
 from vis import *
 
-
-
-
 # ============================================================================
 # CONFIGURATION: Choose what to run
 # ============================================================================
@@ -245,13 +242,26 @@ def run_bert_model():
     # NEW: EXPLAINABLE AI FOR BERT
     # ========================================================================
     if RUN_XAI:
-        from xai_explanations import explain_bert_model
+        from xai_explanations import explain_bert_model, explain_bert_global
 
+        # Option 1: Local explainability (sample-level)
+        print("\n--- LOCAL Explainability (Sample-Level) ---")
         explain_bert_model(
             bert_model=bert_model,
             X_test_text=X_test_text,
             y_test=y_test,
             sample_indices=[0, 1, 2, 5, 10],
+            model_name='BERT'
+        )
+
+        # Option 2: GLOBAL explainability (dataset-level)
+        print("\n--- GLOBAL Explainability (Dataset-Level) ---")
+        explain_bert_global(
+            bert_model=bert_model,
+            X_test_text=X_test_text,
+            y_test=y_test,
+            n_samples=100,  # Analyze 100 samples to find global patterns
+            num_features=30,
             model_name='BERT'
         )
     # ========================================================================
@@ -318,16 +328,32 @@ def run_feature_fusion():
     # NEW: XAI FOR FEATURE FUSION
     # ========================================================================
     if RUN_XAI:
-        print("\n" + "=" * 80)
-        print("XAI FOR FEATURE FUSION")
-        print("=" * 80)
-        print("\nFor comprehensive XAI on Feature Fusion:")
-        print("1. Run explain_classical_models() on manual features only")
-        print("2. Run explain_bert_model() on text only")
-        print("3. Compare contributions of each modality")
-        print("=" * 80 + "\n")
+        from xai_explanations import explain_feature_fusion_global
 
-        # You can add specific feature fusion XAI here if needed
+        print("\n" + "=" * 80)
+        print("GLOBAL XAI FOR FEATURE FUSION")
+        print("=" * 80)
+
+        # Get manual feature names
+        manual_feature_cols = [col for col in X_manual.columns]
+
+        # Run global XAI that analyzes BOTH text and manual features
+        results = explain_feature_fusion_global(
+            fusion_model=fusion_model,
+            X_text_test=X_text_test,
+            X_features_test=X_man_test,
+            y_test=y_test,
+            feature_names=manual_feature_cols,
+            n_samples=100,  # Analyze 100 samples
+            model_name='FeatureFusion'
+        )
+
+        print("\nFeature Fusion XAI Complete!")
+        print("Check 'xai_explanations/' for:")
+        print("  • Text contributions per class")
+        print("  • Manual feature contributions per class")
+        print("  • Combined visualization showing both modalities")
+        print("=" * 80 + "\n")
     # ========================================================================
 
     return results_df, fusion_model, X_text_test, X_man_test, y_test
@@ -372,15 +398,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
 
 # import pandas as pd
 # from data_loader import load_data

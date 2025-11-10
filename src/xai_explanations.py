@@ -755,3 +755,458 @@ if __name__ == "__main__":
     print("Enhanced XAI Module with BERT Support Loaded Successfully!")
     print("\nTo install required packages:")
     print("  pip install shap lime transformers --break-system-packages")
+
+
+# ============================================================================
+# GLOBAL EXPLAINABILITY FOR BERT AND FEATURE FUSION
+# ============================================================================
+
+def explain_bert_global(bert_model, X_test_text, y_test, n_samples=100,
+                        num_features=30, model_name='BERT', save_dir=XAI_DIR):
+    """
+    GLOBAL explainability for BERT model by aggregating LIME across many samples
+
+    Args:
+        bert_model: Your BERTClassifier instance
+        X_test_text: Test text samples
+        y_test: Test labels
+        n_samples: Number of samples to analyze for global patterns
+        num_features: Number of top features to extract per sample
+        model_name: Name for outputs
+        save_dir: Directory to save outputs
+    """
+    try:
+        import lime
+        import lime.lime_text
+    except ImportError:
+        print("LIME not installed. Run: pip install lime --break-system-packages")
+        return None
+
+    print("\n" + "=" * 80)
+    print(f"GLOBAL EXPLAINABILITY - {model_name}")
+    print("=" * 80)
+    print(f"Analyzing {n_samples} samples to find global patterns...")
+
+    # Create explainer
+    explainer = lime.lime_text.LimeTextExplainer(class_names=['Class 0', 'Class 1'])
+
+    # Storage for word importances
+    word_importance_class0 = {}  # words important for predicting class 0
+    word_importance_class1 = {}  # words important for predicting class 1
+
+    # Sample indices - get diverse samples from both classes
+    class_0_indices = [i for i, label in enumerate(y_test) if label == 0]
+    class_1_indices = [i for i, label in enumerate(y_test) if label == 1]
+
+    n_per_class = min(n_samples // 2, len(class_0_indices), len(class_1_indices))
+    import random
+    random.seed(42)
+    sample_indices = (random.sample(class_0_indices, n_per_class) +
+                      random.sample(class_1_indices, n_per_class))
+
+    print(f"Analyzing {len(sample_indices)} samples ({n_per_class} per class)...")
+
+    # Analyze each sample
+    for idx in tqdm(sample_indices, desc="Extracting LIME explanations"):
+        text = X_test_text.iloc[idx] if isinstance(X_test_text, pd.Series) else X_test_text[idx]
+
+        try:
+            explanation = explainer.explain_instance(
+                text,
+                bert_model.predict_proba,
+                num_features=num_features,
+                num_samples=500  # LIME sampling
+            )
+
+            # Get feature weights for both classes
+            for word, weight in explanation.as_list():
+                # Positive weight means important for class 1
+                if weight > 0:
+                    word_importance_class1[word] = word_importance_class1.get(word, []) + [weight]
+                else:
+                    word_importance_class0[word] = word_importance_class0.get(word, []) + [abs(weight)]
+
+        except Exception as e:
+            print(f"Warning: Failed on sample {idx}: {e}")
+            continue
+
+    # Aggregate results
+    print("\nAggregating results across all samples...")
+
+    def aggregate_word_importance(word_dict):
+        """Calculate mean, frequency, and total importance for each word"""
+        results = []
+        for word, weights in word_dict.items():
+            results.append({
+                'word': word,
+                'mean_importance': np.mean(weights),
+                'frequency': len(weights),
+                'total_importance': np.sum(weights),
+                'std_importance': np.std(weights)
+            })
+        return pd.DataFrame(results).sort_values('total_importance', ascending=False)
+
+    df_class0 = aggregate_word_importance(word_importance_class0)
+    df_class1 = aggregate_word_importance(word_importance_class1)
+
+    # Save results
+    print("\nSaving global importance results...")
+    csv_path_0 = os.path.join(save_dir, f'{model_name}_global_words_class0.csv')
+    csv_path_1 = os.path.join(save_dir, f'{model_name}_global_words_class1.csv')
+    df_class0.to_csv(csv_path_0, index=False)
+    df_class1.to_csv(csv_path_1, index=False)
+    print(f"✓ Saved: {csv_path_0}")
+    print(f"✓ Saved: {csv_path_1}")
+
+    # Print top features
+    print("\n" + "=" * 80)
+    print(f"TOP 20 WORDS PREDICTING CLASS 0 (across {len(sample_indices)} samples)")
+    print("=" * 80)
+    print(df_class0.head(20).to_string())
+
+    print("\n" + "=" * 80)
+    print(f"TOP 20 WORDS PREDICTING CLASS 1 (across {len(sample_indices)} samples)")
+    print("=" * 80)
+    print(df_class1.head(20).to_string())
+
+    # Create visualizations
+    print("\nCreating global visualization...")
+
+    # Top words bar plot for each class
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+
+    # Class 0
+    top_20_class0 = df_class0.head(20)
+    axes[0].barh(range(len(top_20_class0)), top_20_class0['total_importance'].values, color='steelblue')
+    axes[0].set_yticks(range(len(top_20_class0)))
+    axes[0].set_yticklabels(top_20_class0['word'].values)
+    axes[0].set_xlabel('Total Importance (Aggregated)', fontsize=12)
+    axes[0].set_title(f'Top 20 Words for Class 0\n({model_name})', fontsize=14, fontweight='bold')
+    axes[0].invert_yaxis()
+    axes[0].grid(axis='x', alpha=0.3)
+
+    # Class 1
+    top_20_class1 = df_class1.head(20)
+    axes[1].barh(range(len(top_20_class1)), top_20_class1['total_importance'].values, color='coral')
+    axes[1].set_yticks(range(len(top_20_class1)))
+    axes[1].set_yticklabels(top_20_class1['word'].values)
+    axes[1].set_xlabel('Total Importance (Aggregated)', fontsize=12)
+    axes[1].set_title(f'Top 20 Words for Class 1\n({model_name})', fontsize=14, fontweight='bold')
+    axes[1].invert_yaxis()
+    axes[1].grid(axis='x', alpha=0.3)
+
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, f'{model_name}_global_word_importance.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved visualization: {save_path}")
+    plt.close()
+
+    # Create frequency vs importance scatter plot
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    axes[0].scatter(df_class0['frequency'], df_class0['mean_importance'], alpha=0.5, color='steelblue')
+    axes[0].set_xlabel('Frequency (# samples)', fontsize=12)
+    axes[0].set_ylabel('Mean Importance', fontsize=12)
+    axes[0].set_title(f'Word Frequency vs Importance - Class 0\n({model_name})', fontsize=14, fontweight='bold')
+    axes[0].grid(alpha=0.3)
+
+    # Annotate top words
+    for _, row in df_class0.head(10).iterrows():
+        axes[0].annotate(row['word'], (row['frequency'], row['mean_importance']),
+                         fontsize=8, alpha=0.7)
+
+    axes[1].scatter(df_class1['frequency'], df_class1['mean_importance'], alpha=0.5, color='coral')
+    axes[1].set_xlabel('Frequency (# samples)', fontsize=12)
+    axes[1].set_ylabel('Mean Importance', fontsize=12)
+    axes[1].set_title(f'Word Frequency vs Importance - Class 1\n({model_name})', fontsize=14, fontweight='bold')
+    axes[1].grid(alpha=0.3)
+
+    # Annotate top words
+    for _, row in df_class1.head(10).iterrows():
+        axes[1].annotate(row['word'], (row['frequency'], row['mean_importance']),
+                         fontsize=8, alpha=0.7)
+
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, f'{model_name}_global_frequency_scatter.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved scatter plot: {save_path}")
+    plt.close()
+
+    print("\n" + "=" * 80)
+    print("GLOBAL EXPLAINABILITY COMPLETE!")
+    print("=" * 80 + "\n")
+
+    return df_class0, df_class1
+
+
+def explain_feature_fusion_global(fusion_model, X_text_test, X_features_test, y_test,
+                                  feature_names, n_samples=100, model_name='FeatureFusion',
+                                  save_dir=XAI_DIR):
+    """
+    GLOBAL explainability for Feature Fusion model
+    Analyzes both text contributions (via LIME) and manual feature contributions
+
+    Args:
+        fusion_model: Your BERTFeatureFusionClassifier instance
+        X_text_test: Test text samples
+        X_features_test: Test manual features
+        y_test: Test labels
+        feature_names: Names of manual features
+        n_samples: Number of samples to analyze
+        model_name: Name for outputs
+        save_dir: Directory to save outputs
+    """
+    try:
+        import lime
+        import lime.lime_text
+        import lime.lime_tabular
+    except ImportError:
+        print("LIME not installed. Run: pip install lime --break-system-packages")
+        return None
+
+    print("\n" + "=" * 80)
+    print(f"GLOBAL EXPLAINABILITY - {model_name}")
+    print("=" * 80)
+    print(f"Analyzing BOTH text and manual features across {n_samples} samples...")
+
+    # ========================================================================
+    # PART 1: Analyze TEXT contributions
+    # ========================================================================
+    print("\n--- Analyzing Text Contributions ---")
+
+    # Create wrapper for text-only predictions
+    class TextOnlyWrapper:
+        def __init__(self, fusion_model, X_features_test):
+            self.fusion_model = fusion_model
+            self.X_features_test = X_features_test
+
+        def predict_proba(self, texts):
+            """Predict using text + average features"""
+            # Use mean features for all samples (to isolate text effect)
+            mean_features = self.X_features_test.mean(axis=0).values
+            n_samples = len(texts) if isinstance(texts, list) else 1
+            features_batch = np.tile(mean_features, (n_samples, 1))
+
+            return self.fusion_model.predict_proba(texts, features_batch)
+
+    text_wrapper = TextOnlyWrapper(fusion_model, X_features_test)
+    text_explainer = lime.lime_text.LimeTextExplainer(class_names=['Class 0', 'Class 1'])
+
+    # Sample indices
+    class_0_indices = [i for i, label in enumerate(y_test) if label == 0]
+    class_1_indices = [i for i, label in enumerate(y_test) if label == 1]
+    n_per_class = min(n_samples // 2, len(class_0_indices), len(class_1_indices))
+
+    import random
+    random.seed(42)
+    sample_indices = (random.sample(class_0_indices, n_per_class) +
+                      random.sample(class_1_indices, n_per_class))
+
+    word_importance_class0 = {}
+    word_importance_class1 = {}
+
+    print(f"Analyzing text in {len(sample_indices)} samples...")
+    for idx in tqdm(sample_indices, desc="Extracting text importance"):
+        text = X_text_test.iloc[idx] if isinstance(X_text_test, pd.Series) else X_text_test[idx]
+
+        try:
+            explanation = text_explainer.explain_instance(
+                text,
+                text_wrapper.predict_proba,
+                num_features=30,
+                num_samples=500
+            )
+
+            for word, weight in explanation.as_list():
+                if weight > 0:
+                    word_importance_class1[word] = word_importance_class1.get(word, []) + [weight]
+                else:
+                    word_importance_class0[word] = word_importance_class0.get(word, []) + [abs(weight)]
+        except Exception as e:
+            print(f"Warning: Failed on sample {idx}: {e}")
+            continue
+
+    # Aggregate text results
+    def aggregate_importance(word_dict):
+        results = []
+        for word, weights in word_dict.items():
+            results.append({
+                'word': word,
+                'mean_importance': np.mean(weights),
+                'frequency': len(weights),
+                'total_importance': np.sum(weights)
+            })
+        return pd.DataFrame(results).sort_values('total_importance', ascending=False)
+
+    df_text_class0 = aggregate_importance(word_importance_class0)
+    df_text_class1 = aggregate_importance(word_importance_class1)
+
+    # ========================================================================
+    # PART 2: Analyze MANUAL FEATURE contributions
+    # ========================================================================
+    print("\n--- Analyzing Manual Feature Contributions ---")
+
+    # Create wrapper for features-only predictions
+    class FeaturesOnlyWrapper:
+        def __init__(self, fusion_model, X_text_test):
+            self.fusion_model = fusion_model
+            # Create a generic text template
+            self.generic_text = "This is a generic text sample."
+
+        def predict_proba(self, features):
+            """Predict using generic text + actual features"""
+            n_samples = features.shape[0]
+            texts = [self.generic_text] * n_samples
+            return self.fusion_model.predict_proba(texts, features)
+
+    features_wrapper = FeaturesOnlyWrapper(fusion_model, X_text_test)
+
+    # Convert features to numpy
+    X_features_np = X_features_test.values if isinstance(X_features_test, pd.DataFrame) else X_features_test
+
+    # Create LIME tabular explainer for features
+    features_explainer = lime.lime_tabular.LimeTabularExplainer(
+        X_features_np,
+        feature_names=feature_names,
+        class_names=['Class 0', 'Class 1'],
+        mode='classification'
+    )
+
+    feature_importance_class0 = {feat: [] for feat in feature_names}
+    feature_importance_class1 = {feat: [] for feat in feature_names}
+
+    print(f"Analyzing manual features in {len(sample_indices)} samples...")
+    for idx in tqdm(sample_indices, desc="Extracting feature importance"):
+        try:
+            explanation = features_explainer.explain_instance(
+                X_features_np[idx],
+                features_wrapper.predict_proba,
+                num_features=len(feature_names)
+            )
+
+            for feat, weight in explanation.as_list():
+                if weight > 0:
+                    feature_importance_class1[feat].append(weight)
+                else:
+                    feature_importance_class0[feat].append(abs(weight))
+        except Exception as e:
+            print(f"Warning: Failed on sample {idx}: {e}")
+            continue
+
+    # Aggregate feature results
+    def aggregate_feature_importance(feat_dict):
+        results = []
+        for feat, weights in feat_dict.items():
+            if weights:  # Only if we have data
+                results.append({
+                    'feature': feat,
+                    'mean_importance': np.mean(weights),
+                    'frequency': len(weights),
+                    'total_importance': np.sum(weights)
+                })
+        return pd.DataFrame(results).sort_values('total_importance', ascending=False)
+
+    df_feat_class0 = aggregate_feature_importance(feature_importance_class0)
+    df_feat_class1 = aggregate_feature_importance(feature_importance_class1)
+
+    # ========================================================================
+    # SAVE RESULTS
+    # ========================================================================
+    print("\n--- Saving Results ---")
+
+    # Save text results
+    df_text_class0.to_csv(os.path.join(save_dir, f'{model_name}_text_class0.csv'), index=False)
+    df_text_class1.to_csv(os.path.join(save_dir, f'{model_name}_text_class1.csv'), index=False)
+
+    # Save feature results
+    df_feat_class0.to_csv(os.path.join(save_dir, f'{model_name}_features_class0.csv'), index=False)
+    df_feat_class1.to_csv(os.path.join(save_dir, f'{model_name}_features_class1.csv'), index=False)
+
+    print(f"✓ Saved all results to {save_dir}/")
+
+    # ========================================================================
+    # PRINT RESULTS
+    # ========================================================================
+    print("\n" + "=" * 80)
+    print("TOP 15 WORDS FOR EACH CLASS")
+    print("=" * 80)
+    print("\nClass 0:")
+    print(df_text_class0.head(15).to_string())
+    print("\nClass 1:")
+    print(df_text_class1.head(15).to_string())
+
+    print("\n" + "=" * 80)
+    print("TOP MANUAL FEATURES FOR EACH CLASS")
+    print("=" * 80)
+    print("\nClass 0:")
+    print(df_feat_class0.head(15).to_string())
+    print("\nClass 1:")
+    print(df_feat_class1.head(15).to_string())
+
+    # ========================================================================
+    # CREATE VISUALIZATIONS
+    # ========================================================================
+    print("\n--- Creating Visualizations ---")
+
+    # Combined visualization showing text AND features
+    fig, axes = plt.subplots(2, 2, figsize=(18, 14))
+
+    # Top left: Text for Class 0
+    top_15_text_0 = df_text_class0.head(15)
+    axes[0, 0].barh(range(len(top_15_text_0)), top_15_text_0['total_importance'].values, color='steelblue')
+    axes[0, 0].set_yticks(range(len(top_15_text_0)))
+    axes[0, 0].set_yticklabels(top_15_text_0['word'].values, fontsize=10)
+    axes[0, 0].set_xlabel('Total Importance', fontsize=11)
+    axes[0, 0].set_title('Top Words Predicting Class 0', fontsize=13, fontweight='bold')
+    axes[0, 0].invert_yaxis()
+    axes[0, 0].grid(axis='x', alpha=0.3)
+
+    # Top right: Text for Class 1
+    top_15_text_1 = df_text_class1.head(15)
+    axes[0, 1].barh(range(len(top_15_text_1)), top_15_text_1['total_importance'].values, color='coral')
+    axes[0, 1].set_yticks(range(len(top_15_text_1)))
+    axes[0, 1].set_yticklabels(top_15_text_1['word'].values, fontsize=10)
+    axes[0, 1].set_xlabel('Total Importance', fontsize=11)
+    axes[0, 1].set_title('Top Words Predicting Class 1', fontsize=13, fontweight='bold')
+    axes[0, 1].invert_yaxis()
+    axes[0, 1].grid(axis='x', alpha=0.3)
+
+    # Bottom left: Features for Class 0
+    top_15_feat_0 = df_feat_class0.head(15)
+    axes[1, 0].barh(range(len(top_15_feat_0)), top_15_feat_0['total_importance'].values, color='mediumseagreen')
+    axes[1, 0].set_yticks(range(len(top_15_feat_0)))
+    axes[1, 0].set_yticklabels(top_15_feat_0['feature'].values, fontsize=10)
+    axes[1, 0].set_xlabel('Total Importance', fontsize=11)
+    axes[1, 0].set_title('Top Manual Features Predicting Class 0', fontsize=13, fontweight='bold')
+    axes[1, 0].invert_yaxis()
+    axes[1, 0].grid(axis='x', alpha=0.3)
+
+    # Bottom right: Features for Class 1
+    top_15_feat_1 = df_feat_class1.head(15)
+    axes[1, 1].barh(range(len(top_15_feat_1)), top_15_feat_1['total_importance'].values, color='orange')
+    axes[1, 1].set_yticks(range(len(top_15_feat_1)))
+    axes[1, 1].set_yticklabels(top_15_feat_1['feature'].values, fontsize=10)
+    axes[1, 1].set_xlabel('Total Importance', fontsize=11)
+    axes[1, 1].set_title('Top Manual Features Predicting Class 1', fontsize=13, fontweight='bold')
+    axes[1, 1].invert_yaxis()
+    axes[1, 1].grid(axis='x', alpha=0.3)
+
+    plt.suptitle(f'Global Feature Importance: {model_name}\n(Text + Manual Features)',
+                 fontsize=16, fontweight='bold', y=0.995)
+    plt.tight_layout()
+
+    save_path = os.path.join(save_dir, f'{model_name}_global_combined.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved combined visualization: {save_path}")
+    plt.close()
+
+    print("\n" + "=" * 80)
+    print("FEATURE FUSION GLOBAL EXPLAINABILITY COMPLETE!")
+    print("=" * 80 + "\n")
+
+    return {
+        'text_class0': df_text_class0,
+        'text_class1': df_text_class1,
+        'features_class0': df_feat_class0,
+        'features_class1': df_feat_class1
+    }
