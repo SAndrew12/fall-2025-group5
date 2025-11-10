@@ -10,8 +10,8 @@ from vis import *
 # ============================================================================
 # CONFIGURATION: Choose what to run
 # ============================================================================
-RUN_CLASSICAL = False
-RUN_BERT = True
+RUN_CLASSICAL = True
+RUN_BERT = False
 RUN_FEATURE_FUSION = False
 
 # XAI CONFIGURATION
@@ -175,7 +175,7 @@ def run_bert_model():
     sample_texts = X_text.head(10)
     for i, text in enumerate(sample_texts):
         has_taliban = any(word in text.lower() for word in ['taliban', 'taleban'])
-        has_isis = any(word in text.lower() for word in ['isis', 'islamic state'])
+        has_isis = any(word in text.lower() for word in ['isis', 'islamic state', 'IS'])
         print(f"Text {i}: Taliban={has_taliban}, ISIS={has_isis}")
         if has_taliban or has_isis:
             print(f" LEAKAGE DETECTED: {text[:100]}...")

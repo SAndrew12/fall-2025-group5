@@ -48,6 +48,7 @@ def mask_group_names(text):
         r'\bISIS\b',
         r'\bISIL\b',
         r'\bIslamic State\b',
+        r'\bIS\b'
     ]
 
     # Combine all variants
@@ -78,9 +79,9 @@ def mask_location_names(text):
         return text
 
     # Provinces
-    provinces = ['Wardak', 'Farah', 'Helmand', 'Kandahar', 'Nimruz', 'Paktia', 'Paktika',
+    provinces = ['Wardak', 'Shewa', 'Farah', 'Helmand', 'Kandahar', 'Nimruz', 'Paktia', 'Paktika',
                  'Parwan', 'Logar', 'Kunar', 'Ghazni', 'Laghman', 'Herat', 'Kabul', 'Sar-e Pol',
-                 'Nangarhar', 'Khost', 'Zabul', 'Badakhshan', 'Faryab', 'Kunduz', 'Badghis',
+                 'Nangarhar', 'Nangahar', 'Khost', 'Zabul', 'Badakhshan', 'Faryab', 'Kunduz', 'Badghis',
                  'Balkh', 'Kapisa', 'Baghlan', 'Samangan', 'Urozgan', 'Jowzjan', 'Daykundi',
                  'Nuristan', 'Takhar', 'Ghor', 'Bamyan', 'Panjshir', 'Khatlon']
 
