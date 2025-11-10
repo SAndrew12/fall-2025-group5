@@ -593,11 +593,6 @@ if __name__ == "__main__":
     print("  pip install shap lime matplotlib seaborn --break-system-packages")
 
 
-
-
-
-
-
 # ============================================================================
 # BERT MODEL EXPLANATIONS
 # ============================================================================
@@ -661,8 +656,24 @@ def visualize_bert_attention(bert_model, text, layer=-1, head=0,
     inputs = tokenizer(text, return_tensors='pt', truncation=True,
                        max_length=bert_model.max_length, padding=True)
 
+    # Detect device from model
+    # Try multiple ways to get the device
+    try:
+        # Method 1: Check if bert_model has a device attribute
+        if hasattr(bert_model, 'device'):
+            device = bert_model.device
+        # Method 2: Get device from model parameters
+        elif hasattr(bert_model, 'model'):
+            device = next(bert_model.model.parameters()).device
+        # Method 3: Default to cuda if available, else cpu
+        else:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    except Exception as e:
+        print(f"Warning: Could not detect device, defaulting to CPU. Error: {e}")
+        device = torch.device('cpu')
+
     # Move to device
-    inputs = {k: v.to(bert_model.device) for k, v in inputs.items()}
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
     # Get attention
     with torch.no_grad():
