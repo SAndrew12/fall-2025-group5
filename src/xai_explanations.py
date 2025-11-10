@@ -249,6 +249,11 @@ def global_shap_analysis(trainer, X_train, X_test, feature_names,
                          top_n=20, save_dir=XAI_DIR):
     """
     Run SHAP analysis on ALL tree-based models and aggregate results
+    in a robust way that handles different SHAP output shapes.
+
+    Strategy:
+        - For each model, compute mean(|SHAP|) per feature over samples.
+        - Then average these per-feature vectors across models.
     """
     try:
         import shap
@@ -260,45 +265,91 @@ def global_shap_analysis(trainer, X_train, X_test, feature_names,
     print("GLOBAL SHAP ANALYSIS ACROSS ALL TREE-BASED MODELS")
     print("=" * 80)
 
-    all_shap_values = []
+    per_model_feature_importance = []  # list of (n_features,) arrays
+    raw_shap_values = []               # optional: store raw per-model SHAP arrays
     model_names = []
 
-    # Run SHAP for each tree-based model
     for model_key, (model, preprocessors) in trainer.trained_models.items():
-        if hasattr(model, 'feature_importances_'):
-            print(f"\n→ Computing SHAP for {model_key}...")
+        # Only run on tree-based models (those that had feature_importances_)
+        if not hasattr(model, 'feature_importances_'):
+            print(f"Skipping {model_key}: no feature_importances_ (likely non-tree model)")
+            continue
 
-            # Preprocess data
-            X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
+        print(f"\n→ Computing SHAP for {model_key}...")
 
-            # Create explainer and compute SHAP values
-            explainer = shap.TreeExplainer(model)
-            shap_values = explainer.shap_values(X_test_proc)
+        # Preprocess X_test with that model's preprocessors
+        X_test_proc = trainer._apply_preprocessing(X_test, preprocessors, fit=False)
 
-            # For binary classification, get positive class
-            if isinstance(shap_values, list):
-                shap_values = shap_values[1]
+        # Make sure we have a numpy array
+        X_test_np = X_test_proc.values if hasattr(X_test_proc, "values") else X_test_proc
 
-            all_shap_values.append(shap_values)
-            model_names.append(model_key)
-            print(f"  ✓ SHAP values shape: {shap_values.shape}")
+        # Build explainer & compute SHAP
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_test_np)
 
-    if not all_shap_values:
-        print("\nNo tree-based models found for SHAP!")
+        # Normalize SHAP output to a 2D array of shape (n_samples, n_features)
+        # SHAP can return:
+        #   - list of arrays (one per class)
+        #   - a 3D array (n_classes, n_samples, n_features)
+        #   - a 2D array (n_samples, n_features)
+        sv = shap_values
+
+        # Case 1: list-like (e.g., [class0, class1])
+        if isinstance(sv, list):
+            # Binary: use positive class (index 1) if available, else mean across classes
+            if len(sv) == 2:
+                sv = sv[1]
+            else:
+                # Average across classes: result (n_samples, n_features)
+                sv = np.mean(np.stack(sv, axis=0), axis=0)
+
+        # Convert to numpy array
+        sv = np.array(sv)
+
+        # Case 2: 3D array (n_classes, n_samples, n_features)
+        if sv.ndim == 3:
+            if sv.shape[0] == 2:
+                # Binary: take positive class
+                sv = sv[1]
+            else:
+                # General: average across classes
+                sv = sv.mean(axis=0)  # → (n_samples, n_features)
+
+        # At this point we expect sv to be 2D: (n_samples, n_features)
+        if sv.ndim != 2:
+            print(f"  ⚠️ Unexpected SHAP shape {sv.shape} for {model_key}, skipping this model.")
+            continue
+
+        if sv.shape[1] != len(feature_names):
+            print(f"  ⚠️ Feature count mismatch for {model_key}: "
+                  f"SHAP features={sv.shape[1]}, feature_names={len(feature_names)}. "
+                  f"Skipping this model.")
+            continue
+
+        # Store raw SHAP values (optional, for later inspection)
+        raw_shap_values.append(sv)
+        model_names.append(model_key)
+
+        # Compute mean |SHAP| over samples → per-feature importance
+        mean_abs_by_feature = np.abs(sv).mean(axis=0)  # shape (n_features,)
+        per_model_feature_importance.append(mean_abs_by_feature)
+
+        print(f"  ✓ SHAP values shape (normalized): {sv.shape}")
+        print(f"  ✓ Per-feature mean |SHAP| computed for {model_key}")
+
+    if not per_model_feature_importance:
+        print("\nNo valid tree-based models found for SHAP!")
         return None
 
-    # Aggregate SHAP values: Mean absolute value across models
     print(f"\n{'=' * 80}")
-    print(f"AGGREGATING SHAP VALUES FROM {len(all_shap_values)} MODELS")
+    print(f"AGGREGATING SHAP VALUES FROM {len(per_model_feature_importance)} MODELS")
     print('=' * 80)
 
-    # Calculate mean |SHAP| for each feature across all models
-    mean_abs_shap = np.mean([np.abs(sv) for sv in all_shap_values], axis=0)
+    # Stack into (n_models, n_features) and average across models
+    per_model_feature_importance = np.vstack(per_model_feature_importance)
+    global_importance = per_model_feature_importance.mean(axis=0)  # (n_features,)
 
-    # Get global feature importance (mean across samples and models)
-    global_importance = np.mean(mean_abs_shap, axis=0)
-
-    # Create summary DataFrame
+    # Build summary DataFrame
     shap_summary = pd.DataFrame({
         'feature': feature_names,
         'mean_abs_shap': global_importance
@@ -307,15 +358,15 @@ def global_shap_analysis(trainer, X_train, X_test, feature_names,
     print(f"\nTop {min(top_n, len(shap_summary))} Features by SHAP:")
     print(shap_summary.head(top_n).to_string(index=False))
 
-    # Save
+    # Save CSV
     csv_path = os.path.join(save_dir, 'global_shap_importance.csv')
     shap_summary.to_csv(csv_path, index=False)
     print(f"\n✓ Saved SHAP summary to: {csv_path}")
 
-    # Visualize: Aggregated SHAP bar plot
+    # Bar plot of top features
     plt.figure(figsize=(12, 8))
     top_features = shap_summary.head(top_n)
-    plt.barh(range(len(top_features)), top_features['mean_abs_shap'].values, color='coral')
+    plt.barh(range(len(top_features)), top_features['mean_abs_shap'].values)
     plt.yticks(range(len(top_features)), top_features['feature'].values)
     plt.xlabel('Mean |SHAP| (Aggregated Across All Models)', fontsize=12)
     plt.title(f'Global SHAP Feature Importance (Top {top_n})',
@@ -329,7 +380,12 @@ def global_shap_analysis(trainer, X_train, X_test, feature_names,
     print(f"✓ Saved SHAP bar plot: {save_path}")
     plt.close()
 
-    return shap_summary, all_shap_values, model_names
+    # Return:
+    #   - shap_summary: DataFrame with global importance
+    #   - raw_shap_values: list of per-model SHAP arrays (possibly different shapes)
+    #   - model_names: corresponding model keys
+    return shap_summary, raw_shap_values, model_names
+
 
 
 def compare_importance_methods(feature_imp_agg, shap_summary, top_n=15, save_dir=XAI_DIR):
