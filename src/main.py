@@ -10,8 +10,8 @@ from vis import *
 # ============================================================================
 # CONFIGURATION: Choose what to run
 # ============================================================================
-RUN_CLASSICAL = True
-RUN_BERT = False
+RUN_CLASSICAL = False
+RUN_BERT = True
 RUN_FEATURE_FUSION = False
 
 # XAI CONFIGURATION
