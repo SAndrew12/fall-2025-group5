@@ -144,7 +144,6 @@ def run_classical_models():
         print("  • Multiple visualization plots (.png)")
         print("=" * 80 + "\n")
 
-
 def run_bert_model():
     """Run BERT model on text data with improved minority class handling"""
     print("\n" + "=" * 80)
@@ -175,7 +174,7 @@ def run_bert_model():
     sample_texts = X_text.head(10)
     for i, text in enumerate(sample_texts):
         has_taliban = any(word in text.lower() for word in ['taliban', 'taleban'])
-        has_isis = any(word in text.lower() for word in ['isis', 'islamic state', 'IS'])
+        has_isis = any(word in text.lower() for word in ['isis', 'islamic state'])
         print(f"Text {i}: Taliban={has_taliban}, ISIS={has_isis}")
         if has_taliban or has_isis:
             print(f" LEAKAGE DETECTED: {text[:100]}...")
@@ -197,23 +196,30 @@ def run_bert_model():
     print(f"Class distribution (train): {y_train.value_counts().to_dict()}")
     print(f"Class distribution (test): {y_test.value_counts().to_dict()}")
 
-    # ============================================================================
-    # Train BERT with Balanced Sampler + Class Weights
-    # ============================================================================
+    # ========================================================================
+    # Train BERT with:
+    #   - Frozen lower layers
+    #   - Balanced sampler
+    #   - Moderate effective-number class weights
+    #   - Label smoothing
+    # ========================================================================
     print("\n" + "=" * 80)
-    print("TRAINING BERT: Balanced Sampler + Moderate Class Weights")
+    print("TRAINING BERT: Frozen base + Balanced Sampler + Class Weights")
     print("=" * 80)
 
     bert_model = BERTClassifier(
         model_name='bert-base-uncased',
         max_length=256,
-        batch_size=4,
+        batch_size=8,          # a bit larger now that most layers are frozen
         learning_rate=2e-5,
-        epochs=5,
+        epochs=6,
         random_state=42,
         use_class_weights=True,
         use_balanced_sampler=True,
-        focal_loss=False
+        focal_loss=False,
+        freeze_bert_base=True,
+        unfreeze_last_n_layers=4,
+        label_smoothing=0.1
     )
 
     # Split train into train/val
@@ -239,12 +245,12 @@ def run_bert_model():
     plot_bert_roc_pr(y_test, y_proba, model_name='BERT')
 
     # ========================================================================
-    # NEW: EXPLAINABLE AI FOR BERT
+    # XAI FOR BERT
     # ========================================================================
     if RUN_XAI:
         from xai_explanations import explain_bert_model, explain_bert_global
 
-        # Option 1: Local explainability (sample-level)
+        # Local explainability
         print("\n--- LOCAL Explainability (Sample-Level) ---")
         explain_bert_model(
             bert_model=bert_model,
@@ -254,19 +260,141 @@ def run_bert_model():
             model_name='BERT'
         )
 
-        # Option 2: GLOBAL explainability (dataset-level)
+        # Global explainability
         print("\n--- GLOBAL Explainability (Dataset-Level) ---")
         explain_bert_global(
             bert_model=bert_model,
             X_test_text=X_test_text,
             y_test=y_test,
-            n_samples=100,  # Analyze 100 samples to find global patterns
+            n_samples=100,
             num_features=30,
             model_name='BERT'
         )
-    # ========================================================================
 
     return results_df, bert_model, X_test_text, y_test, y_pred, y_proba
+
+# def run_bert_model():
+#     """Run BERT model on text data with improved minority class handling"""
+#     print("\n" + "=" * 80)
+#     print("RUNNING BERT MODEL")
+#     print("=" * 80 + "\n")
+#
+#     # Import improved BERT classifier
+#     from non_classical import BERTClassifier
+#
+#     # 1. Load data
+#     df = load_data()
+#
+#     # 2. Feature engineering (no embeddings needed for BERT)
+#     working_df, unattrib_df = feature_creating(
+#         df,
+#         use_embeddings=False,  # BERT handles its own text encoding
+#         text_columns=None
+#     )
+#
+#     # 3. Get the text column and labels
+#     X_text = working_df['notes'].fillna('')
+#     print("\nRemoving group names and locations from text...")
+#     X_text = X_text.apply(mask_group_names)
+#     X_text = X_text.apply(mask_location_names)
+#     print("Text masking complete!")
+#
+#     print("\n=== CHECKING FOR LEAKAGE ===")
+#     sample_texts = X_text.head(10)
+#     for i, text in enumerate(sample_texts):
+#         has_taliban = any(word in text.lower() for word in ['taliban', 'taleban'])
+#         has_isis = any(word in text.lower() for word in ['isis', 'islamic state', 'IS'])
+#         print(f"Text {i}: Taliban={has_taliban}, ISIS={has_isis}")
+#         if has_taliban or has_isis:
+#             print(f" LEAKAGE DETECTED: {text[:100]}...")
+#     print("=== END CHECK ===\n")
+#
+#     y = working_df['target']
+#
+#     # 4. Train-test split for text data
+#     from sklearn.model_selection import train_test_split
+#     X_train_text, X_test_text, y_train, y_test = train_test_split(
+#         X_text, y,
+#         test_size=0.4,
+#         random_state=42,
+#         stratify=y
+#     )
+#
+#     print(f"\nTraining samples: {len(X_train_text)}")
+#     print(f"Test samples: {len(X_test_text)}")
+#     print(f"Class distribution (train): {y_train.value_counts().to_dict()}")
+#     print(f"Class distribution (test): {y_test.value_counts().to_dict()}")
+#
+#     # ============================================================================
+#     # Train BERT with Balanced Sampler + Class Weights
+#     # ============================================================================
+#     print("\n" + "=" * 80)
+#     print("TRAINING BERT: Balanced Sampler + Moderate Class Weights")
+#     print("=" * 80)
+#
+#     bert_model = BERTClassifier(
+#         model_name='bert-base-uncased',
+#         max_length=256,
+#         batch_size=4,
+#         learning_rate=2e-5,
+#         epochs=5,
+#         random_state=42,
+#         use_class_weights=True,
+#         use_balanced_sampler=True,
+#         focal_loss=False
+#     )
+#
+#     # Split train into train/val
+#     X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(
+#         X_train_text, y_train,
+#         test_size=0.2,
+#         random_state=42,
+#         stratify=y_train
+#     )
+#
+#     bert_model.fit(X_train_split, y_train_split, X_val_split, y_val_split)
+#     bert_model.find_optimal_threshold(X_val_split, y_val_split)
+#     results, y_pred, y_proba = bert_model.evaluate(X_test_text, y_test)
+#
+#     # Save results
+#     results_df = pd.DataFrame([results])
+#     results_df.to_csv("bert_results.csv", index=False)
+#     print("\nResults saved to 'bert_results.csv'")
+#
+#     # Visualizations
+#     from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
+#     plot_bert_confusion_matrix(y_test, y_pred, model_name='BERT')
+#     plot_bert_roc_pr(y_test, y_proba, model_name='BERT')
+#
+#     # ========================================================================
+#     # NEW: EXPLAINABLE AI FOR BERT
+#     # ========================================================================
+#     if RUN_XAI:
+#         from xai_explanations import explain_bert_model, explain_bert_global
+#
+#         # Option 1: Local explainability (sample-level)
+#         print("\n--- LOCAL Explainability (Sample-Level) ---")
+#         explain_bert_model(
+#             bert_model=bert_model,
+#             X_test_text=X_test_text,
+#             y_test=y_test,
+#             sample_indices=[0, 1, 2, 5, 10],
+#             model_name='BERT'
+#         )
+#
+#         # Option 2: GLOBAL explainability (dataset-level)
+#         print("\n--- GLOBAL Explainability (Dataset-Level) ---")
+#         explain_bert_global(
+#             bert_model=bert_model,
+#             X_test_text=X_test_text,
+#             y_test=y_test,
+#             n_samples=100,  # Analyze 100 samples to find global patterns
+#             num_features=30,
+#             model_name='BERT'
+#         )
+#     # ========================================================================
+#
+#     return results_df, bert_model, X_test_text, y_test, y_pred, y_proba
 
 
 def run_feature_fusion():
