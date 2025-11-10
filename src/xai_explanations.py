@@ -23,6 +23,7 @@ import seaborn as sns
 import os
 from typing import Optional, List, Dict, Tuple
 import warnings
+from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
 
