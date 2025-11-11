@@ -8,65 +8,72 @@ EMBEDDING_MODEL = None
 
 def mask_group_names(text):
     """
-    Replace ALL armed group names with the SAME semantic placeholder.
-    Forces model to learn from tactics/context, not group identity.
-    """
-    if not isinstance(text, str):
-        return text
-
-    taliban_variants = [
-        r'\bTehrik-i-Taliban Pakistan\b',
-        r'\bTehreek-e-Taliban\b',
-        r'\bTehrik-i-Taliban\b',
-        r'\bTaliban-e\b',
-        r'\bTaliban\b',
-        r'\bTaleban\b',
-        r'\bT-Ban\b',
-        r'\bTban\b',
-        r'\bTTP\b',
-    ]
-
-    isis_variants = [
-        r'\bIslamic State Khorasan Province\b',
-        r'\bIslamic State in Khorasan\b',
-        r'\bIslamic State of Khorasan\b',
-        r'\bISIS Khorasan\b',
-        r'\bISIS-Khorasan\b',
-        r'\bISIL Khorasan\b',
-        r'\bIslamic State\b',
-        r'\bISIS-KP\b',
-        r'\bISIS-K\b',
-        r'\bISIL-K\b',
-        r'\bIS-KP\b',
-        r'\bIS-K\b',
-        r'\bDa\'esh\b',
-        r'\bDaesh\b',
-        r'\bISIS\b',
-        r'\bISIL\b',
-        r'\bIS\b',
-    ]
-
-    masked_text = text
-
-    # Replace ALL group names with the SAME placeholder
-    all_variants = taliban_variants + isis_variants
-    for pattern in all_variants:
-        masked_text = re.sub(pattern, '[ARMED_GROUP]', masked_text, flags=re.IGNORECASE)
-
-    # Clean up multiple spaces
-    masked_text = re.sub(r'\s+', ' ', masked_text).strip()
-
-    return masked_text
-
-def mask_location_names(text):
-    """
-    Replace location names (provinces and districts) with semantic placeholders.
+    Remove all variants of Taliban and ISIS-K group names entirely.
 
     Args:
         text: Input text string
 
     Returns:
-        Text with location names replaced with [LOCATION] placeholder
+        Text with group names removed
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Define all variants (case-insensitive)
+    taliban_variants = [
+        r'\bTaliban\b',
+        r'\bTaleban\b',
+        r'\bTaliban-e\b',
+        r'\bT-Ban\b',
+        r'\bTban\b',
+        r'\bTTP\b',  # Tehrik-i-Taliban Pakistan
+        r'\bTehrik-i-Taliban\b',
+        r'\bTehreek-e-Taliban\b',
+    ]
+
+    isis_variants = [
+        r'\bISIS-K\b',
+        r'\bISIS-KP\b',
+        r'\bISIS Khorasan\b',
+        r'\bISIS-Khorasan\b',
+        r'\bISIL-K\b',
+        r'\bISIL Khorasan\b',
+        r'\bIS-K\b',
+        r'\bIS-KP\b',
+        r'\bIslamic State Khorasan\b',
+        r'\bIslamic State in Khorasan\b',
+        r'\bIslamic State of Khorasan\b',
+        r'\bDaesh\b',
+        r'\bDa\'esh\b',
+        r'\bISIS\b',
+        r'\bISIL\b',
+        r'\bIslamic State\b',
+        r'\bIS\b'
+    ]
+
+    # Combine all variants
+    all_variants = taliban_variants + isis_variants
+
+    # Remove each variant completely
+    masked_text = text
+    for pattern in all_variants:
+        masked_text = re.sub(pattern, '', masked_text, flags=re.IGNORECASE)
+
+    # Clean up multiple spaces and extra whitespace
+    masked_text = re.sub(r'\s+', ' ', masked_text).strip()
+
+    return masked_text
+
+
+def mask_location_names(text):
+    """
+    Remove all location names (provinces and districts) from text.
+
+    Args:
+        text: Input text string
+
+    Returns:
+        Text with location names removed
     """
     if not isinstance(text, str):
         return text
@@ -147,7 +154,7 @@ def mask_location_names(text):
     for location in all_locations:
         # Use word boundaries to avoid partial matches
         pattern = r'\b' + re.escape(location) + r'\b'
-        masked_text = re.sub(pattern, '[LOCATION]', masked_text, flags=re.IGNORECASE)
+        masked_text = re.sub(pattern, '', masked_text, flags=re.IGNORECASE)
 
     # Clean up multiple spaces and extra whitespace
     masked_text = re.sub(r'\s+', ' ', masked_text).strip()
@@ -318,6 +325,10 @@ def create_casualty_threshold_features(df, fatalities_column='fatalities'):
     return df_copy
 
 
+
+
+
+
 # ---------Feature Eng Old--------
 
 def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_features=True):
@@ -463,3 +474,7 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
     return working_df, unattrib_df
 
 # ---------Feature Eng Old--------
+
+
+
+
