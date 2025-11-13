@@ -32,7 +32,7 @@ BERT_CONFIG = {
     'random_state': 42,
     'early_stopping_patience': 2,
     'focal_loss': True,
-    'focal_alpha': 0.25,
+    'focal_alpha': 0.75, #change from .25
     'focal_gamma': 2.0,
     'freeze_bert_base': True,
     'unfreeze_last_n_layers': 4,
