@@ -8,6 +8,7 @@ from train_test_split import t_t_s
 from under_over import undersample_train
 from models import ModelTrainer
 from vis import *
+from tqdm import tqdm
 
 # ============================================================================
 # CONFIGURATION: Choose what to run
@@ -39,7 +40,9 @@ BERT_CONFIG = {
     'prediction_threshold': 0.5,
 }
 
-
+# ============================================================================
+# Models
+# ============================================================================
 def run_classical_models():
     """Run classical ML models (Random Forest, XGBoost, MLP) with XAI"""
     print("\n" + "=" * 80)

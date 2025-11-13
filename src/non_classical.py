@@ -351,12 +351,20 @@ class BERTClassifier:
         """Get prediction probabilities"""
         self.model.eval()
 
+        # Handle different input types (list, Series, array)
+        if hasattr(X_test, 'tolist'):
+            texts = X_test.tolist()
+        else:
+            texts = list(X_test)
+
         dataset = TextDataset(
-            X_test.tolist(),
-            [0] * len(X_test),
+            texts,
+            [0] * len(texts),
             self.tokenizer,
             self.max_length
         )
+
+
 
         dataloader = DataLoader(
             dataset,
