@@ -63,10 +63,29 @@ class FocalLoss(nn.Module):
         self.gamma = gamma
 
     def forward(self, inputs, targets):
+        """Compute focal loss with class-dependent alpha.
+
+        Assumes binary classification with targets in {0, 1} and
+        self.alpha interpreted as the weight for the positive class (1).
+        The weight for the negative class (0) is then (1 - self.alpha).
+        """
+        # Standard cross-entropy per example (no reduction)
         ce_loss = nn.functional.cross_entropy(inputs, targets, reduction='none')
+        # Probabilities for the ground-truth class
         p = torch.exp(-ce_loss)
-        focal_loss = self.alpha * (1 - p) ** self.gamma * ce_loss
+        # Class-dependent alpha: alpha for class 1, (1 - alpha) for class 0
+        alpha_t = torch.where(targets == 1,
+            torch.full_like(ce_loss, self.alpha),
+            torch.full_like(ce_loss, 1.0 - self.alpha)
+        )
+        focal_loss = alpha_t * (1 - p) ** self.gamma * ce_loss
         return focal_loss.mean()
+
+    # def forward(self, inputs, targets):
+    #     ce_loss = nn.functional.cross_entropy(inputs, targets, reduction='none')
+    #     p = torch.exp(-ce_loss)
+    #     focal_loss = self.alpha * (1 - p) ** self.gamma * ce_loss
+    #     return focal_loss.mean()
 
 
 class BERTClassifier:
