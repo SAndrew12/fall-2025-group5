@@ -362,7 +362,8 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
         'region',
         'latitude',
         'longitude',
-        'interaction']
+        'interaction',
+        'event_date']
     # -----Cols to Drop----
 
     # ------Groups-----
@@ -404,10 +405,10 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
     ]
     # -----Tags for 'violence against women tags'----
 
-    df = df.drop(columns=to_drop)
-    df['event_date'] = pd.to_datetime(df['event_date'])
-    df = df.sort_values(by='event_date', ascending=True)
-    df = df.reset_index(drop=True)
+    # df = df.drop(columns=to_drop)
+    # df['event_date'] = pd.to_datetime(df['event_date'])
+    # df = df.sort_values(by='event_date', ascending=True)
+    # df = df.reset_index(drop=True)
 
     # create a dataframe of unattributed attacks
     # to be used later

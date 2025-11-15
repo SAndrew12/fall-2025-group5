@@ -285,8 +285,8 @@ def run_feature_fusion():
     # 2. Feature engineering WITH embeddings for manual features
     working_df, unattrib_df = feature_creating(
         df,
-        use_embeddings=True,
-        text_columns=['notes']
+        use_embeddings=False,
+        text_columns=None
     )
 
     # 3. Get text and manual features
