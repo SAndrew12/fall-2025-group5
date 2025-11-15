@@ -14,8 +14,8 @@ from tqdm import tqdm
 # CONFIGURATION: Choose what to run
 # ============================================================================
 RUN_CLASSICAL = False
-RUN_BERT = True
-RUN_FEATURE_FUSION = False
+RUN_BERT = False
+RUN_FEATURE_FUSION = True
 
 # XAI CONFIGURATION
 RUN_XAI = True
