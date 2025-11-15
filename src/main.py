@@ -347,7 +347,7 @@ def run_feature_fusion():
     print("=" * 60 + "\n")
 
     y = working_df['target']
-    
+
     # 4. Train-test split
     from sklearn.model_selection import train_test_split
     X_text_train, X_text_test, X_man_train, X_man_test, y_train, y_test = train_test_split(

@@ -1129,6 +1129,9 @@ def explain_feature_fusion_global(fusion_model, X_text_test, X_features_test, y_
         mode='classification'
     )
 
+    # PASTE THIS INTO YOUR xai_explanations.py
+    # Replace lines 1132-1167 with this fixed version:
+
     feature_importance_class0 = {feat: [] for feat in feature_names}
     feature_importance_class1 = {feat: [] for feat in feature_names}
 
@@ -1141,11 +1144,21 @@ def explain_feature_fusion_global(fusion_model, X_text_test, X_features_test, y_
                 num_features=len(feature_names)
             )
 
+            # LIME returns discretized names like 'fatalities > 0.00'
+            # We need to extract the base feature name
             for feat, weight in explanation.as_list():
-                if weight > 0:
-                    feature_importance_class1[feat].append(weight)
+                # Extract base feature name by removing conditions
+                base_feat = feat.split('<=')[0].split('>')[0].split('<')[0].split('=')[0].strip()
+
+                # Only add if base feature is in our feature names
+                if base_feat in feature_importance_class0:
+                    if weight > 0:
+                        feature_importance_class1[base_feat].append(weight)
+                    else:
+                        feature_importance_class0[base_feat].append(abs(weight))
                 else:
-                    feature_importance_class0[feat].append(abs(weight))
+                    # Skip features we don't recognize
+                    pass
         except Exception as e:
             print(f"Warning: Failed on sample {idx}: {e}")
             continue
@@ -1159,8 +1172,16 @@ def explain_feature_fusion_global(fusion_model, X_text_test, X_features_test, y_
                     'feature': feat,
                     'mean_importance': np.mean(weights),
                     'frequency': len(weights),
-                    'total_importance': np.sum(weights)
+                    'total_importance': np.sum(weights),
+                    'std_importance': np.std(weights)
                 })
+
+        # CRITICAL FIX: Handle empty results
+        if not results:
+            print(f"Warning: No feature importance data collected. Returning empty DataFrame.")
+            return pd.DataFrame(
+                columns=['feature', 'mean_importance', 'frequency', 'total_importance', 'std_importance'])
+
         return pd.DataFrame(results).sort_values('total_importance', ascending=False)
 
     df_feat_class0 = aggregate_feature_importance(feature_importance_class0)
