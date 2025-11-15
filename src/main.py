@@ -41,6 +41,38 @@ BERT_CONFIG = {
     'use_batch_balancing': True,  # NEW: Enable batch balancing
 }
 
+############
+FUSION_MANUAL_FEATURES = [
+    # Base numeric features
+    'civilian_targeting',
+    'fatalities',
+    'violence_against_women',
+
+    # Lean features (casualty thresholds)
+    'has_casualties',
+    'high_casualties',
+    'very_high_casualties',
+    'zero_fatalities',
+
+    # Lean features (attack patterns)
+    'coordinated_attack',
+    'series_attack',
+
+    # One-hot encoded sub_event_type columns
+    'sub_event_type_Abduction/forced disappearance',
+    'sub_event_type_Air/drone strike',
+    'sub_event_type_Armed clash',
+    'sub_event_type_Attack',
+    'sub_event_type_Government regains territory',
+    'sub_event_type_Grenade',
+    'sub_event_type_Non-state actor overtakes territory',
+    'sub_event_type_Remote explosive/landmine/IED',
+    'sub_event_type_Sexual violence',
+    'sub_event_type_Shelling/artillery/missile attack',
+    'sub_event_type_Suicide bomb'
+]
+###############
+
 # ============================================================================
 # Models
 # ============================================================================
@@ -296,12 +328,26 @@ def run_feature_fusion():
     X_text = X_text.apply(mask_location_names)
     print("Semantic masking complete")
 
-    # Get manual features (all except text and target)
-    manual_feature_cols = [col for col in working_df.columns
-                           if col not in ['notes', 'target']]
-    X_manual = working_df[manual_feature_cols]
-    y = working_df['target']
+    available_features = [col for col in FUSION_MANUAL_FEATURES if col in working_df.columns]
+    missing_features = [col for col in FUSION_MANUAL_FEATURES if col not in working_df.columns]
 
+    print(f"Features requested: {len(FUSION_MANUAL_FEATURES)}")
+    print(f"Features available: {len(available_features)}")
+
+    if missing_features:
+        print(f"\nWARNING: {len(missing_features)} features not found:")
+        for feat in missing_features[:10]:  # Show first 10
+            print(f"  - {feat}")
+        if len(missing_features) > 10:
+            print(f"  ... and {len(missing_features) - 10} more")
+
+    # Select only available manual features
+    X_manual = working_df[available_features].copy()
+    print(f"\nSelected {len(available_features)} manual features")
+    print("=" * 60 + "\n")
+
+    y = working_df['target']
+    
     # 4. Train-test split
     from sklearn.model_selection import train_test_split
     X_text_train, X_text_test, X_man_train, X_man_test, y_train, y_test = train_test_split(
