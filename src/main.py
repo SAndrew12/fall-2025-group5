@@ -21,27 +21,33 @@ RUN_FEATURE_FUSION = True
 RUN_XAI = True
 XAI_MODE = 'comprehensive'  # 'quick' or 'comprehensive'
 
-# BERT CONFIGURATION
+# BERT CONFIGURATION (Applied to both BERT and Feature Fusion)
 BERT_CONFIG = {
     'model_name': 'bert-base-uncased',
     'max_length': 128,
     'batch_size': 16,
     'gradient_accumulation_steps': 2,
     'learning_rate': 2e-5,
-    'epochs': 7,  # Reduced from 10 due to batch balancing
+    'epochs': 7,
     'random_state': 42,
     'early_stopping_patience': 2,
     'focal_loss': True,
-    'focal_alpha': 0.65,  # Reduced from 0.75 since batch balancing also addresses imbalance
+    'focal_alpha': 0.65,
     'focal_gamma': 2.0,
     'freeze_bert_base': True,
     'unfreeze_last_n_layers': 4,
     'dropout_rate': 0.3,
     'prediction_threshold': 0.5,
-    'use_batch_balancing': True,  # NEW: Enable batch balancing
+    'use_batch_balancing': True,
 }
 
-############
+# FEATURE FUSION SPECIFIC CONFIG
+FUSION_CONFIG = {
+    **BERT_CONFIG,  # Inherit all BERT config
+    'hidden_dim': 128,  # Hidden dimension for manual features
+}
+
+# Manual features to use in feature fusion
 FUSION_MANUAL_FEATURES = [
     # Base numeric features
     'civilian_targeting',
@@ -71,7 +77,6 @@ FUSION_MANUAL_FEATURES = [
     'sub_event_type_Shelling/artillery/missile attack',
     'sub_event_type_Suicide bomb'
 ]
-###############
 
 # ============================================================================
 # Models
@@ -304,30 +309,37 @@ def run_bert_model():
 
 
 def run_feature_fusion():
-    """Run BERT + manual features fusion model"""
+    """Run BERT + manual features fusion model with improved BERT configuration"""
     print("\n" + "=" * 80)
-    print("RUNNING FEATURE FUSION MODEL")
+    print("RUNNING FEATURE FUSION MODEL (Improved BERT Config)")
     print("=" * 80 + "\n")
 
-    from feature_fusion import train_fusion_model
+    from feature_fusion import BERTFeatureFusionClassifier
+    from sklearn.model_selection import train_test_split
 
     # 1. Load data
+    print("\nLoading data...")
     df = load_data()
 
-    # 2. Feature engineering WITH embeddings for manual features
+    # 2. Feature engineering (no embeddings needed)
+    print("Creating features...")
     working_df, unattrib_df = feature_creating(
         df,
         use_embeddings=False,
         text_columns=None
     )
 
-    # 3. Get text and manual features
+    # 3. Get text and apply masking
     X_text = working_df['notes'].fillna('')
-    print("\nApplying semantic masking to text...")
+    print("\n" + "=" * 60)
+    print("APPLYING SEMANTIC MASKING")
+    print("=" * 60)
     X_text = X_text.apply(mask_group_names)
     X_text = X_text.apply(mask_location_names)
     print("Semantic masking complete")
+    print("=" * 60 + "\n")
 
+    # 4. Select manual features
     available_features = [col for col in FUSION_MANUAL_FEATURES if col in working_df.columns]
     missing_features = [col for col in FUSION_MANUAL_FEATURES if col not in working_df.columns]
 
@@ -336,42 +348,78 @@ def run_feature_fusion():
 
     if missing_features:
         print(f"\nWARNING: {len(missing_features)} features not found:")
-        for feat in missing_features[:10]:  # Show first 10
+        for feat in missing_features[:10]:
             print(f"  - {feat}")
         if len(missing_features) > 10:
             print(f"  ... and {len(missing_features) - 10} more")
 
-    # Select only available manual features
     X_manual = working_df[available_features].copy()
     print(f"\nSelected {len(available_features)} manual features")
     print("=" * 60 + "\n")
 
     y = working_df['target']
 
-
-    # 4. Train-test split
-    from sklearn.model_selection import train_test_split
+    # 5. Train-test split
     X_text_train, X_text_test, X_man_train, X_man_test, y_train, y_test = train_test_split(
         X_text, X_manual, y,
-        test_size=0.4,
+        test_size=0.3,
         random_state=42,
         stratify=y
     )
 
-    print(f"\nTraining samples: {len(X_text_train)}")
-    print(f"Test samples: {len(X_text_test)}")
-    print(f"Manual features: {X_manual.shape[1]}")
-
-    # 5. Train fusion model
-    fusion_model, results = train_fusion_model(
+    # 6. Create validation split from training data
+    X_text_tr, X_text_val, X_man_tr, X_man_val, y_tr, y_val = train_test_split(
         X_text_train, X_man_train, y_train,
-        X_text_test, X_man_test, y_test
+        test_size=0.2,
+        random_state=42,
+        stratify=y_train
     )
 
-    # 6. Save results
+    print(f"Data splits:")
+    print(f"Train: {len(X_text_tr)}")
+    print(f"Validation: {len(X_text_val)}")
+    print(f"Test: {len(X_text_test)}")
+    print(f"Manual features: {X_manual.shape[1]}")
+
+    # 7. Initialize and train feature fusion model with improved config
+    print("\n" + "=" * 80)
+    print("USING IMPROVED BERT CONFIGURATION")
+    print("=" * 80)
+    print(f"Epochs: {FUSION_CONFIG['epochs']}")
+    print(f"Early stopping patience: {FUSION_CONFIG['early_stopping_patience']}")
+    print(f"Focal loss: {FUSION_CONFIG['focal_loss']}")
+    print(f"Batch balancing: {FUSION_CONFIG['use_batch_balancing']}")
+    print(f"Freeze BERT base: {FUSION_CONFIG['freeze_bert_base']}")
+    print(f"Unfreeze last N layers: {FUSION_CONFIG['unfreeze_last_n_layers']}")
+    print(f"Gradient accumulation steps: {FUSION_CONFIG['gradient_accumulation_steps']}")
+    print("=" * 80 + "\n")
+
+    fusion_model = BERTFeatureFusionClassifier(**FUSION_CONFIG)
+    fusion_model.fit(
+        X_text_tr, X_man_tr, y_tr,
+        X_text_val, X_man_val, y_val
+    )
+
+    # 8. Find optimal threshold
+    fusion_model.find_optimal_threshold(X_text_val, X_man_val, y_val)
+
+    # 9. Evaluate on test set
+    results, y_pred, y_proba = fusion_model.evaluate(X_text_test, X_man_test, y_test)
+
+    # 10. Save results
     results_df = pd.DataFrame([results])
     results_df.to_csv("feature_fusion_results.csv", index=False)
     print("\nResults saved to 'feature_fusion_results.csv'")
+
+    # 11. Save training stats
+    training_stats = fusion_model.get_training_stats()
+    training_stats.to_csv("feature_fusion_training_stats.csv", index=False)
+    print("Training stats saved to 'feature_fusion_training_stats.csv'")
+
+    # 12. Visualizations
+    from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
+    plot_bert_confusion_matrix(y_test, y_pred, model_name='Feature Fusion')
+    plot_bert_roc_pr(y_test, y_proba, model_name='Feature Fusion')
 
     # XAI FOR FEATURE FUSION
     if RUN_XAI:
@@ -382,10 +430,10 @@ def run_feature_fusion():
         print("=" * 80)
 
         # Get manual feature names
-        manual_feature_cols = [col for col in X_manual.columns]
+        manual_feature_cols = list(X_manual.columns)
 
         # Run global XAI
-        results = explain_feature_fusion_global(
+        xai_results = explain_feature_fusion_global(
             fusion_model=fusion_model,
             X_text_test=X_text_test,
             X_features_test=X_man_test,
@@ -399,7 +447,7 @@ def run_feature_fusion():
         print("XAI COMPLETE")
         print("=" * 80 + "\n")
 
-    return results_df, fusion_model, X_text_test, X_man_test, y_test
+    return results_df, fusion_model, X_text_test, X_man_test, y_test, y_pred, y_proba
 
 
 def main():
@@ -426,7 +474,7 @@ def main():
 
     # Run Feature Fusion if configured
     if RUN_FEATURE_FUSION:
-        fusion_results, fusion_model, X_text_test, X_man_test, y_test_fusion = run_feature_fusion()
+        fusion_results, fusion_model, X_text_test, X_man_test, y_test_fusion, y_pred, y_proba = run_feature_fusion()
 
     print("\n" + "=" * 80)
     print("ALL TASKS COMPLETED")
@@ -441,9 +489,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 # import pandas as pd
 # import numpy as np
@@ -461,8 +506,8 @@ if __name__ == "__main__":
 # # CONFIGURATION: Choose what to run
 # # ============================================================================
 # RUN_CLASSICAL = False
-# RUN_BERT = True
-# RUN_FEATURE_FUSION = False
+# RUN_BERT = False
+# RUN_FEATURE_FUSION = True
 #
 # # XAI CONFIGURATION
 # RUN_XAI = True
@@ -475,17 +520,50 @@ if __name__ == "__main__":
 #     'batch_size': 16,
 #     'gradient_accumulation_steps': 2,
 #     'learning_rate': 2e-5,
-#     'epochs': 10,
+#     'epochs': 7,  # Reduced from 10 due to batch balancing
 #     'random_state': 42,
 #     'early_stopping_patience': 2,
 #     'focal_loss': True,
-#     'focal_alpha': 0.75, #change from .25
+#     'focal_alpha': 0.65,  # Reduced from 0.75 since batch balancing also addresses imbalance
 #     'focal_gamma': 2.0,
 #     'freeze_bert_base': True,
 #     'unfreeze_last_n_layers': 4,
 #     'dropout_rate': 0.3,
 #     'prediction_threshold': 0.5,
+#     'use_batch_balancing': True,  # NEW: Enable batch balancing
 # }
+#
+# ############
+# FUSION_MANUAL_FEATURES = [
+#     # Base numeric features
+#     'civilian_targeting',
+#     'fatalities',
+#     'violence_against_women',
+#
+#     # Lean features (casualty thresholds)
+#     'has_casualties',
+#     'high_casualties',
+#     'very_high_casualties',
+#     'zero_fatalities',
+#
+#     # Lean features (attack patterns)
+#     'coordinated_attack',
+#     'series_attack',
+#
+#     # One-hot encoded sub_event_type columns
+#     'sub_event_type_Abduction/forced disappearance',
+#     'sub_event_type_Air/drone strike',
+#     'sub_event_type_Armed clash',
+#     'sub_event_type_Attack',
+#     'sub_event_type_Government regains territory',
+#     'sub_event_type_Grenade',
+#     'sub_event_type_Non-state actor overtakes territory',
+#     'sub_event_type_Remote explosive/landmine/IED',
+#     'sub_event_type_Sexual violence',
+#     'sub_event_type_Shelling/artillery/missile attack',
+#     'sub_event_type_Suicide bomb'
+# ]
+# ###############
 #
 # # ============================================================================
 # # Models
@@ -731,8 +809,8 @@ if __name__ == "__main__":
 #     # 2. Feature engineering WITH embeddings for manual features
 #     working_df, unattrib_df = feature_creating(
 #         df,
-#         use_embeddings=True,
-#         text_columns=['notes']
+#         use_embeddings=False,
+#         text_columns=None
 #     )
 #
 #     # 3. Get text and manual features
@@ -742,11 +820,26 @@ if __name__ == "__main__":
 #     X_text = X_text.apply(mask_location_names)
 #     print("Semantic masking complete")
 #
-#     # Get manual features (all except text and target)
-#     manual_feature_cols = [col for col in working_df.columns
-#                            if col not in ['notes', 'target']]
-#     X_manual = working_df[manual_feature_cols]
+#     available_features = [col for col in FUSION_MANUAL_FEATURES if col in working_df.columns]
+#     missing_features = [col for col in FUSION_MANUAL_FEATURES if col not in working_df.columns]
+#
+#     print(f"Features requested: {len(FUSION_MANUAL_FEATURES)}")
+#     print(f"Features available: {len(available_features)}")
+#
+#     if missing_features:
+#         print(f"\nWARNING: {len(missing_features)} features not found:")
+#         for feat in missing_features[:10]:  # Show first 10
+#             print(f"  - {feat}")
+#         if len(missing_features) > 10:
+#             print(f"  ... and {len(missing_features) - 10} more")
+#
+#     # Select only available manual features
+#     X_manual = working_df[available_features].copy()
+#     print(f"\nSelected {len(available_features)} manual features")
+#     print("=" * 60 + "\n")
+#
 #     y = working_df['target']
+#
 #
 #     # 4. Train-test split
 #     from sklearn.model_selection import train_test_split
@@ -840,3 +933,7 @@ if __name__ == "__main__":
 #
 # if __name__ == "__main__":
 #     main()
+#
+#
+#
+#
