@@ -29,7 +29,7 @@ BERT_CONFIG = {
     'batch_size': 16,
     'gradient_accumulation_steps': 2,
     'learning_rate': 2e-5,
-    'epochs': 7,
+    'epochs': 12,
     'random_state': 42,
     'early_stopping_patience': 2,
     'focal_loss': True,
