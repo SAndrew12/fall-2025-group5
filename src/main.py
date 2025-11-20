@@ -31,7 +31,7 @@ BERT_CONFIG = {
     'learning_rate': 2e-5,
     'epochs': 12,
     'random_state': 42,
-    'early_stopping_patience': 2,
+    'early_stopping_patience': 3,
     'focal_loss': True,
     'focal_alpha': 0.75,
     'focal_gamma': 2.0,
