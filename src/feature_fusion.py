@@ -94,10 +94,25 @@ class BERTWithManualFeatures(nn.Module):
 
         # Combined layers
         bert_hidden_size = self.bert.config.hidden_size  # 768 for base BERT
-        self.combined_layer = nn.Linear(bert_hidden_size + hidden_dim, 256)
+        # self.combined_layer = nn.Linear(bert_hidden_size + hidden_dim, 256)
+        #
+        #
+        # self.classifier = nn.Linear(256, 2)
+        self.fusion = nn.Sequential(
+            nn.Linear(bert_hidden_size + hidden_dim, 512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
 
-        # Final classification layer
-        self.classifier = nn.Linear(256, 2)
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+        )
+
+        self.classifier = nn.Linear(128, 2)
 
         self.dropout = nn.Dropout(dropout)
         self.relu = nn.ReLU()
@@ -115,11 +130,19 @@ class BERTWithManualFeatures(nn.Module):
         feature_embedding = self.dropout(feature_embedding)
 
         # Concatenate BERT and manual features
+        # combined = torch.cat([cls_embedding, feature_embedding], dim=1)
+        #
+        # # Pass through combined layers
+        # x = self.relu(self.combined_layer(combined))
+        # x = self.dropout(x)
+        #
+        # # Final classification
+        # logits = self.classifier(x)
+        # return logits
         combined = torch.cat([cls_embedding, feature_embedding], dim=1)
 
-        # Pass through combined layers
-        x = self.relu(self.combined_layer(combined))
-        x = self.dropout(x)
+        # Pass through fusion MLP
+        x = self.fusion(combined)
 
         # Final classification
         logits = self.classifier(x)

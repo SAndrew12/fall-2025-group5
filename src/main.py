@@ -8,6 +8,7 @@ from train_test_split import t_t_s
 from under_over import undersample_train
 from models import ModelTrainer
 from vis import *
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 # ============================================================================
@@ -24,21 +25,21 @@ XAI_MODE = 'comprehensive'  # 'quick' or 'comprehensive'
 # BERT CONFIGURATION (Applied to both BERT and Feature Fusion)
 BERT_CONFIG = {
     'model_name': 'bert-base-uncased',
-    'max_length': 256,
+    'max_length': 320,
     'batch_size': 16,
     'gradient_accumulation_steps': 2,
     'learning_rate': 2e-5,
     'epochs': 7,
     'random_state': 42,
     'early_stopping_patience': 2,
-    'focal_loss': False,
-    'focal_alpha': 0.65,
+    'focal_loss': True,
+    'focal_alpha': 0.75,
     'focal_gamma': 2.0,
     'freeze_bert_base': False,
     'unfreeze_last_n_layers': 12,
     'dropout_rate': 0.3,
     'prediction_threshold': 0.5,
-    'use_batch_balancing': True,
+    'use_batch_balancing': False,
 }
 
 # FEATURE FUSION SPECIFIC CONFIG
@@ -367,6 +368,19 @@ def run_feature_fusion():
         stratify=y
     )
 
+    # EW: scale manual features using training data only
+    scaler = StandardScaler()
+    X_man_train = pd.DataFrame(
+        scaler.fit_transform(X_man_train),
+        columns=X_man_train.columns,
+        index=X_man_train.index,
+    )
+    X_man_test = pd.DataFrame(
+        scaler.transform(X_man_test),
+        columns=X_man_test.columns,
+        index=X_man_test.index,
+    )
+
     # 6. Create validation split from training data
     X_text_tr, X_text_val, X_man_tr, X_man_val, y_tr, y_val = train_test_split(
         X_text_train, X_man_train, y_train,
@@ -374,6 +388,28 @@ def run_feature_fusion():
         random_state=42,
         stratify=y_train
     )
+
+    # X_manual = working_df[available_features].copy()
+    # print(f"\nSelected {len(available_features)} manual features")
+    # print("=" * 60 + "\n")
+    #
+    # y = working_df['target']
+    #
+    # # 5. Train-test split
+    # X_text_train, X_text_test, X_man_train, X_man_test, y_train, y_test = train_test_split(
+    #     X_text, X_manual, y,
+    #     test_size=0.3,
+    #     random_state=42,
+    #     stratify=y
+    # )
+    #
+    # # 6. Create validation split from training data
+    # X_text_tr, X_text_val, X_man_tr, X_man_val, y_tr, y_val = train_test_split(
+    #     X_text_train, X_man_train, y_train,
+    #     test_size=0.2,
+    #     random_state=42,
+    #     stratify=y_train
+    # )
 
     print(f"Data splits:")
     print(f"Train: {len(X_text_tr)}")
