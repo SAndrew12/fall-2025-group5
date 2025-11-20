@@ -246,7 +246,7 @@ class BERTFeatureFusionClassifier:
             # Keep feature layers and classifier trainable
             for param in model.feature_layer.parameters():
                 param.requires_grad = True
-            for param in model.combined_layer.parameters():
+            for param in model.fusion.parameters():
                 param.requires_grad = True
             for param in model.classifier.parameters():
                 param.requires_grad = True
@@ -418,7 +418,7 @@ class BERTFeatureFusionClassifier:
 
             # Calculate metrics
             report = classification_report(val_labels, val_preds, output_dict=True, zero_division=0)
-            val_f1 = report['macro avg']['f1-score']
+            val_f1 = report['1']['f1-score']
             val_minority_recall = report['1']['recall']
 
             # Store stats
@@ -546,10 +546,10 @@ class BERTFeatureFusionClassifier:
         best_f1 = 0
         best_threshold = 0.5
 
-        for threshold in np.arange(0.3, 0.8, 0.05):
+        for threshold in np.arange(0.1, 0.9, 0.02):
             y_pred = (y_proba_class1 >= threshold).astype(int)
             report = classification_report(y_val, y_pred, output_dict=True, zero_division=0)
-            f1 = report['macro avg']['f1-score']
+            f1 = report['1']['f1-score']  # optimize minority F1
 
             if f1 > best_f1:
                 best_f1 = f1
