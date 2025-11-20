@@ -24,18 +24,18 @@ XAI_MODE = 'comprehensive'  # 'quick' or 'comprehensive'
 # BERT CONFIGURATION (Applied to both BERT and Feature Fusion)
 BERT_CONFIG = {
     'model_name': 'bert-base-uncased',
-    'max_length': 128,
+    'max_length': 256,
     'batch_size': 16,
     'gradient_accumulation_steps': 2,
     'learning_rate': 2e-5,
     'epochs': 7,
     'random_state': 42,
     'early_stopping_patience': 2,
-    'focal_loss': True,
+    'focal_loss': False,
     'focal_alpha': 0.65,
     'focal_gamma': 2.0,
-    'freeze_bert_base': True,
-    'unfreeze_last_n_layers': 4,
+    'freeze_bert_base': False,
+    'unfreeze_last_n_layers': 12,
     'dropout_rate': 0.3,
     'prediction_threshold': 0.5,
     'use_batch_balancing': True,
@@ -55,10 +55,10 @@ FUSION_MANUAL_FEATURES = [
     'violence_against_women',
 
     # Lean features (casualty thresholds)
-    'has_casualties',
-    'high_casualties',
-    'very_high_casualties',
-    'zero_fatalities',
+    # 'has_casualties',
+    # 'high_casualties',
+    # 'very_high_casualties',
+    # 'zero_fatalities',
 
     # Lean features (attack patterns)
     'coordinated_attack',
