@@ -33,13 +33,13 @@ BERT_CONFIG = {
     'random_state': 42,
     'early_stopping_patience': 3,
     'focal_loss': True,
-    'focal_alpha': 0.75,
-    'focal_gamma': 2.0,
-    'freeze_bert_base': False,
-    'unfreeze_last_n_layers': 12,
-    'dropout_rate': 0.3,
-    'prediction_threshold': 0.5,
-    'use_batch_balancing': False,
+    'focal_alpha': 0.95,
+    'focal_gamma': 3.0,
+    'freeze_bert_base': True,
+    'unfreeze_last_n_layers': 4,
+    'dropout_rate': 0.4,
+    'prediction_threshold': 0.3,
+    'use_batch_balancing': True,
 }
 
 # FEATURE FUSION SPECIFIC CONFIG
