@@ -19,7 +19,7 @@ RUN_BERT = False
 RUN_FEATURE_FUSION = True
 
 # XAI CONFIGURATION
-RUN_XAI = True
+RUN_XAI = False
 XAI_MODE = 'comprehensive'  # 'quick' or 'comprehensive'
 
 # BERT CONFIGURATION (Applied to both BERT and Feature Fusion)
