@@ -1,0 +1,2 @@
+model,test_f1_macro,test_accuracy,test_precision,test_recall,minority_recall,minority_precision,minority_f1
+bert_feature_fusion,0.8234700654094229,0.9851170077352394,0.8020778298561267,0.8483453127479386,0.7058823529411765,0.6101694915254238,0.6545454545454545

@@ -1,0 +1,15 @@
+feature,mean_abs_shap
+fatalities,1.8071834
+sub_event_type_Armed clash,0.763298
+civilian_targeting,0.19601795
+sub_event_type_Remote explosive/landmine/IED,0.0960569
+sub_event_type_Shelling/artillery/missile attack,0.044475462
+sub_event_type_Suicide bomb,0.043295592
+sub_event_type_Attack,0.025834488
+sub_event_type_Non-state actor overtakes territory,0.018828582
+sub_event_type_Abduction/forced disappearance,0.005143635
+sub_event_type_Grenade,0.0042831
+sub_event_type_Air/drone strike,0.0
+violence_against_women,0.0
+sub_event_type_Government regains territory,0.0
+sub_event_type_Sexual violence,0.0
