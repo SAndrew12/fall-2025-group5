@@ -459,7 +459,14 @@ class BERTClassifier:
         return best_threshold
 
     def evaluate(self, X_test, y_test):
-        """Evaluate model on test set"""
+        """
+        Evaluate model on test set with standardized metrics
+
+        This version outputs the same metrics as Classical and Feature Fusion models
+        for consistent comparison across all model types.
+        """
+        from sklearn.metrics import confusion_matrix, roc_auc_score
+
         print("\n" + "=" * 80)
         print("EVALUATING BERT MODEL")
         print("=" * 80)
@@ -470,26 +477,70 @@ class BERTClassifier:
         # Get classification report
         report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
+        # === STANDARDIZED METRICS OUTPUT ===
+
         results = {
             'model': 'bert',
+
+            # Macro metrics
             'test_f1_macro': report['macro avg']['f1-score'],
             'test_accuracy': report['accuracy'],
             'test_precision': report['macro avg']['precision'],
             'test_recall': report['macro avg']['recall'],
-            'minority_recall': report['1']['recall'],
-            'minority_precision': report['1']['precision'],
-            'minority_f1': report['1']['f1-score']
+
+            # Minority class (Class 1) metrics
+            'minority_recall': report['1']['recall'] if '1' in report else 0.0,
+            'minority_precision': report['1']['precision'] if '1' in report else 0.0,
+            'minority_f1': report['1']['f1-score'] if '1' in report else 0.0,
+
+            # Majority class (Class 0) metrics
+            'majority_recall': report['0']['recall'] if '0' in report else 0.0,
+            'majority_precision': report['0']['precision'] if '0' in report else 0.0,
+            'majority_f1': report['0']['f1-score'] if '0' in report else 0.0,
         }
 
+        # ROC AUC score
+        try:
+            if len(y_proba.shape) == 2 and y_proba.shape[1] == 2:
+                results['roc_auc_score'] = roc_auc_score(y_test, y_proba[:, 1])
+            else:
+                results['roc_auc_score'] = roc_auc_score(y_test, y_proba)
+        except:
+            results['roc_auc_score'] = np.nan
+
+        # Confusion matrix breakdown
+        tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+        results['true_positives'] = int(tp)
+        results['true_negatives'] = int(tn)
+        results['false_positives'] = int(fp)
+        results['false_negatives'] = int(fn)
+
+        # CV score (N/A for BERT, but include for consistency)
+        results['cv_score'] = np.nan
+
+        # Print results
         print("\nTest Results:")
         print(f"F1 Score (Macro): {results['test_f1_macro']:.4f}")
         print(f"Accuracy: {results['test_accuracy']:.4f}")
         print(f"Precision: {results['test_precision']:.4f}")
         print(f"Recall: {results['test_recall']:.4f}")
+        print(f"ROC AUC: {results['roc_auc_score']:.4f}")
+
         print(f"\nMinority Class (Class 1) Performance:")
         print(f"Recall: {results['minority_recall']:.4f}")
         print(f"Precision: {results['minority_precision']:.4f}")
         print(f"F1: {results['minority_f1']:.4f}")
+
+        print(f"\nMajority Class (Class 0) Performance:")
+        print(f"Recall: {results['majority_recall']:.4f}")
+        print(f"Precision: {results['majority_precision']:.4f}")
+        print(f"F1: {results['majority_f1']:.4f}")
+
+        print(f"\nConfusion Matrix Breakdown:")
+        print(f"True Positives: {results['true_positives']}")
+        print(f"True Negatives: {results['true_negatives']}")
+        print(f"False Positives: {results['false_positives']}")
+        print(f"False Negatives: {results['false_negatives']}")
 
         print("\nDetailed Classification Report:")
         print(classification_report(y_test, y_pred, zero_division=0))

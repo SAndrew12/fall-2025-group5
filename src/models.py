@@ -237,8 +237,20 @@ class ModelTrainer:
                     print(f"Model {model_name} not recognized.")
         return self
 
+    # ============================================================================
+    # DROP-IN REPLACEMENT FOR models.py
+    # Replace the evaluate() method (lines 240-257) with this version
+    # ============================================================================
+
     def evaluate(self, X_test, y_test):
-        """Evaluate all trained models on test set"""
+        """
+        Evaluate all trained models on test set with standardized metrics
+
+        This version outputs the same metrics as BERT and Feature Fusion models
+        for consistent comparison across all model types.
+        """
+        from sklearn.metrics import confusion_matrix, roc_auc_score
+
         for i, result in enumerate(self.results):
             name = result['model']
             model, preprocessors = self.trained_models[name]
@@ -247,14 +259,72 @@ class ModelTrainer:
             X_test_proc = self._apply_preprocessing(X_test, preprocessors, fit=False)
 
             y_pred = model.predict(X_test_proc)
+
+            # Get probability predictions if available (for ROC AUC)
+            try:
+                if hasattr(model, 'predict_proba'):
+                    y_proba = model.predict_proba(X_test_proc)
+                elif hasattr(model, 'decision_function'):
+                    y_proba = model.decision_function(X_test_proc)
+                else:
+                    y_proba = None
+            except:
+                y_proba = None
+
+            # Get classification report
             report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
-            # Update with test set performance
+            # === STANDARDIZED METRICS OUTPUT ===
+
+            # Macro metrics
             self.results[i]['test_f1_macro'] = report['macro avg']['f1-score']
             self.results[i]['test_accuracy'] = report['accuracy']
             self.results[i]['test_precision'] = report['macro avg']['precision']
             self.results[i]['test_recall'] = report['macro avg']['recall']
+
+            # Minority class (Class 1) metrics
+            if '1' in report:
+                self.results[i]['minority_recall'] = report['1']['recall']
+                self.results[i]['minority_precision'] = report['1']['precision']
+                self.results[i]['minority_f1'] = report['1']['f1-score']
+            else:
+                self.results[i]['minority_recall'] = 0.0
+                self.results[i]['minority_precision'] = 0.0
+                self.results[i]['minority_f1'] = 0.0
+
+            # Majority class (Class 0) metrics
+            if '0' in report:
+                self.results[i]['majority_recall'] = report['0']['recall']
+                self.results[i]['majority_precision'] = report['0']['precision']
+                self.results[i]['majority_f1'] = report['0']['f1-score']
+            else:
+                self.results[i]['majority_recall'] = 0.0
+                self.results[i]['majority_precision'] = 0.0
+                self.results[i]['majority_f1'] = 0.0
+
+            # ROC AUC score (if probabilities available)
+            if y_proba is not None:
+                try:
+                    if len(y_proba.shape) == 2 and y_proba.shape[1] == 2:
+                        # Binary classification with probability for each class
+                        self.results[i]['roc_auc_score'] = roc_auc_score(y_test, y_proba[:, 1])
+                    else:
+                        # Single probability column
+                        self.results[i]['roc_auc_score'] = roc_auc_score(y_test, y_proba)
+                except:
+                    self.results[i]['roc_auc_score'] = np.nan
+            else:
+                self.results[i]['roc_auc_score'] = np.nan
+
+            # Confusion matrix breakdown
+            tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+            self.results[i]['true_positives'] = int(tp)
+            self.results[i]['true_negatives'] = int(tn)
+            self.results[i]['false_positives'] = int(fp)
+            self.results[i]['false_negatives'] = int(fn)
+
         return self
+
 
     def get_results(self):
         """Return results as DataFrame"""
