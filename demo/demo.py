@@ -8,22 +8,50 @@ import pandas as pd
 import pathlib
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODELS_DIR = PROJECT_ROOT / "src" / "experiment_models"
+SAVED_MODELS_DIR = PROJECT_ROOT / "src" / "saved_models"
 DEMO_DIR = PROJECT_ROOT / "demo"
 
 def main():
     st.title("Demo Loader")
 
-    # ---- Check saved models ----
-    model_files = list(MODELS_DIR.glob("*.pt"))
 
-    if not model_files:
-        st.error("No .pt model files found in src/experiment_models/")
+
+    st.write(f"Looking for models in: `{SAVED_MODELS_DIR}`")
+
+    @st.cache_resource
+    def load_all_models():
+        """
+        Returns a dict of:
+            { model_type: [list of filenames] }
+        """
+        model_dict = {}
+
+        if not SAVED_MODELS_DIR.exists():
+            return {}
+
+        for subfolder in SAVED_MODELS_DIR.iterdir():
+            if subfolder.is_dir():
+                files = [f.name for f in subfolder.iterdir() if f.is_file()]
+                model_dict[subfolder.name] = files
+
+        print("=== Loaded Models ===")
+        print(model_dict)
+
+        return model_dict
+
+    models = load_all_models()
+
+    if not models:
+        st.error("❌ No models found in saved_models/")
     else:
-        st.success(f"Found {len(model_files)} saved models!")
-        st.write("Model files:")
-        for f in model_files:
-            st.write("- ", f.name)
+        total = sum(len(v) for v in models.values())
+        st.success(f"Found {total} saved models!")
+
+        st.subheader("Model files:")
+        for model_type, files in models.items():
+            st.markdown(f"### 📂 {model_type}")
+            for f in files:
+                st.write(f"- {f}")
 
     # ---- Load sample CSV ----
     sample_csv = DEMO_DIR / "unattributed_attacks_processed.csv"
