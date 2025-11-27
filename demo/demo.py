@@ -26,7 +26,7 @@ def main():
             st.write("- ", f.name)
 
     # ---- Load sample CSV ----
-    sample_csv = DEMO_DIR / "sample.csv"
+    sample_csv = DEMO_DIR / "unattributed_attacks_processed.csv"
 
     if not sample_csv.exists():
         st.error(f"sample.csv not found in {DEMO_DIR}")
