@@ -436,7 +436,7 @@ def feature_creating(df, use_embeddings=True, text_columns=None, use_lean_featur
 
     working_df[col] = working_df[col].notna().astype(int)
 
-    #working_df = working_df.drop(index=[2300, 28966, 31115])
+    working_df = working_df.drop(index=[2300, 28966, 31115])
     working_df = working_df.reset_index(drop=True)
 
     # -----ADD LEAN FEATURES (Numeric-Derived + Aggregate/Count)-----

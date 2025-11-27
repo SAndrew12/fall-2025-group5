@@ -20,8 +20,8 @@ from save_trained_models import (
 # CONFIGURATION: Choose what to run
 # ============================================================================
 RUN_CLASSICAL = True
-RUN_BERT = True
-RUN_FEATURE_FUSION = True
+RUN_BERT = False
+RUN_FEATURE_FUSION = False
 
 # XAI CONFIGURATION
 RUN_XAI = True
