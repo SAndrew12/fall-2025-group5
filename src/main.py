@@ -67,8 +67,8 @@ FUSION_MANUAL_FEATURES = [
     # 'zero_fatalities',
 
     # Lean features (attack patterns)
-    'coordinated_attack',
-    'series_attack',
+    # 'coordinated_attack',
+    # 'series_attack',
 
     # One-hot encoded sub_event_type columns
     'sub_event_type_Abduction/forced disappearance',
