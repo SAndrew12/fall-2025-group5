@@ -158,7 +158,7 @@ def main():
     )
 
     # Save to CSV
-    output_path = 'unattributed_attacks_processed.csv'
+    output_path = '../demo/unattributed_attacks_processed.csv'
     print(f"\nSaving processed data to: {output_path}")
     unattrib_processed.to_csv(output_path, index=False)
     print("Saved successfully!")
