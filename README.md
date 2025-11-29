@@ -24,7 +24,7 @@ This project develops supervised machine learning models to classify unattribute
 
 ---
 
-## 📁 Repository Structure
+##  Repository Structure
 
 ```
 .
@@ -53,7 +53,7 @@ This project develops supervised machine learning models to classify unattribute
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Installation
 
@@ -177,7 +177,7 @@ After running, you'll find:
 
 ---
 
-## 🔬 Methodology
+##  Methodology
 
 
 
@@ -218,7 +218,7 @@ This forces models to learn from tactics/patterns rather than memorizing entity 
 
 ---
 
-## 📊 Evaluation
+##  Evaluation
 
 ### Metrics
 - **Primary**: Macro-F1 (balanced performance across classes)
@@ -241,7 +241,7 @@ When `--xai` flag is enabled:
 
 ---
 
-## 🎯 Key Results
+##  Key Results
 
 ### Model Performance Summary
 | Model | Test Accuracy | Macro-F1 | ISIS-K Recall | Taliban Recall |
@@ -261,7 +261,7 @@ When `--xai` flag is enabled:
 
 ---
 
-## 🛠 Technical Details
+##  Technical Details
 
 ### Dependencies
 - **Core**: pandas, numpy, scikit-learn
@@ -287,7 +287,7 @@ Model hyperparameters are defined in `main.py`:
 
 ---
 
-## 📈 Rationale
+##  Rationale
 Accurate attribution enables trend analysis, risk mapping, and policy evaluation.  
 This classifier aims to:  
 - Provide **consistent** attribution with calibrated uncertainty.  
@@ -301,7 +301,7 @@ This classifier aims to:
 
 ---
 
-## ⚠️ Possible Issues
+##  Possible Issues
 
 ### Data & Labeling
 - Class imbalance (ISIS-K severely underrepresented at ~2% of events)
@@ -329,7 +329,7 @@ This classifier aims to:
 
 ---
 
-## 📝 Citation
+##  Citation
 
 If you use this work, please cite:
 ```
