@@ -173,18 +173,13 @@ After running, you'll find:
 - Remove post-event metadata that may leak attribution.  
 
 ### Engineered Features
-- **Textual**: TF-IDF (uni/bi-grams), keyphrase flags, BERT embeddings.  
-- **Spatiotemporal**: province/district, H3 cells, distance to prior class centroids, month/season, Ramadan, conflict milestones.  
-- **Operational**: `event_type`, weapons/IED proxies, target cues, lethality buckets, repeat-offense rates.  
+ 
 
 ---
 
 ## 🔬 Methodology
 
-### Data Splits
-- **Train**: 2015–2019 (70% of events)
-- **Validation**: 2015–2019 (20% of train, for hyperparameter tuning)
-- **Test**: 2020–2021 (30% of events, held out for final evaluation)
+
 
 ### Class Imbalance Handling
 Given the severe class imbalance (Taliban:ISIS-K ratio ~49:1), we employ:
