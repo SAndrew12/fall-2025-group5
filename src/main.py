@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
+import argparse
 from data_loader import load_data
 from feature_eng import feature_creating
 from feature_eng import mask_group_names, mask_location_names
@@ -17,15 +18,9 @@ from save_trained_models import (
 )
 
 # ============================================================================
-# CONFIGURATION: Choose what to run
+# CONFIGURATION DEFAULTS
 # ============================================================================
-RUN_CLASSICAL = True
-RUN_BERT = False
-RUN_FEATURE_FUSION = False
-
-# XAI CONFIGURATION
-RUN_XAI = True
-XAI_MODE = 'comprehensive'  # 'quick' or 'comprehensive'
+# These are now set via command-line arguments (see parse_arguments() function)
 
 # BERT CONFIGURATION (Applied to both BERT and Feature Fusion)
 BERT_CONFIG = {
@@ -83,6 +78,91 @@ FUSION_MANUAL_FEATURES = [
     'sub_event_type_Shelling/artillery/missile attack',
     'sub_event_type_Suicide bomb'
 ]
+
+
+# ============================================================================
+# Command-Line Argument Parser
+# ============================================================================
+def parse_arguments():
+    """Parse command-line arguments for model selection and configuration"""
+    parser = argparse.ArgumentParser(
+        description='Run ML models for conflict event classification',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all models with XAI
+  python main.py --classical --bert --fusion --xai
+
+  # Run only classical models
+  python main.py --classical
+
+  # Run BERT and fusion with quick XAI
+  python main.py --bert --fusion --xai --xai-mode quick
+
+  # Run all models without XAI
+  python main.py --classical --bert --fusion --no-xai
+        """
+    )
+
+    # Model selection arguments
+    parser.add_argument(
+        '--classical',
+        action='store_true',
+        help='Run classical ML models (Random Forest, XGBoost, MLP)'
+    )
+    parser.add_argument(
+        '--bert',
+        action='store_true',
+        help='Run BERT model'
+    )
+    parser.add_argument(
+        '--fusion',
+        action='store_true',
+        help='Run Feature Fusion model (BERT + manual features)'
+    )
+    parser.add_argument(
+        '--all',
+        action='store_true',
+        help='Run all models (equivalent to --classical --bert --fusion)'
+    )
+
+    # XAI arguments
+    parser.add_argument(
+        '--xai',
+        action='store_true',
+        default=False,
+        help='Enable XAI (explainable AI) analysis'
+    )
+    parser.add_argument(
+        '--no-xai',
+        action='store_true',
+        help='Explicitly disable XAI analysis'
+    )
+    parser.add_argument(
+        '--xai-mode',
+        type=str,
+        choices=['quick', 'comprehensive'],
+        default='comprehensive',
+        help='XAI analysis mode: "quick" or "comprehensive" (default: comprehensive)'
+    )
+
+    args = parser.parse_args()
+
+    # Handle --all flag
+    if args.all:
+        args.classical = True
+        args.bert = True
+        args.fusion = True
+
+    # If no models selected, show error
+    if not (args.classical or args.bert or args.fusion):
+        parser.error('At least one model must be selected (--classical, --bert, --fusion, or --all)')
+
+    # Handle XAI flags
+    if args.no_xai:
+        args.xai = False
+
+    return args
 
 
 # ============================================================================
