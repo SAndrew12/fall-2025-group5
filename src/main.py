@@ -168,7 +168,7 @@ Examples:
 # ============================================================================
 # Models
 # ============================================================================
-def run_classical_models():
+def run_classical_models(RUN_XAI, XAI_MODE):
     """Run classical ML models (Random Forest, XGBoost, MLP) with XAI"""
     print("\n" + "=" * 80)
     print("RUNNING CLASSICAL MODELS")
@@ -280,7 +280,7 @@ def run_classical_models():
     return results_df, trainer, X_test, y_test
 
 
-def run_bert_model():
+def run_bert_model(RUN_XAI, XAI_MODE):
     """Run BERT model"""
     print("\n" + "=" * 80)
     print("RUNNING BERT MODEL")
@@ -395,7 +395,7 @@ def run_bert_model():
     return results_df, bert_model, X_test_text, y_test, y_pred, y_proba
 
 
-def run_feature_fusion():
+def run_feature_fusion(RUN_XAI, XAI_MODE):
     """Run BERT + manual features fusion model with improved BERT configuration"""
     print("\n" + "=" * 80)
     print("RUNNING FEATURE FUSION MODEL (Improved BERT Config)")
@@ -555,20 +555,23 @@ def run_feature_fusion():
 def main():
     """Main execution function"""
 
+    # Parse command-line arguments
+    args = parse_arguments()
+
     print("\n" + "=" * 80)
     print("MACHINE LEARNING PIPELINE")
     print("=" * 80)
-    print(f"Classical Models: {RUN_CLASSICAL}")
-    print(f"BERT Model: {RUN_BERT}")
-    print(f"Feature Fusion: {RUN_FEATURE_FUSION}")
-    print(f"XAI Enabled: {RUN_XAI}")
-    if RUN_XAI:
-        print(f"XAI Mode: {XAI_MODE}")
+    print(f"Classical Models: {args.classical}")
+    print(f"BERT Model: {args.bert}")
+    print(f"Feature Fusion: {args.fusion}")
+    print(f"XAI Enabled: {args.xai}")
+    if args.xai:
+        print(f"XAI Mode: {args.xai_mode}")
     print("=" * 80 + "\n")
 
     # Run classical models if configured
-    if RUN_CLASSICAL:
-        classical_results, trainer, X_test, y_test = run_classical_models()
+    if args.classical:
+        classical_results, trainer, X_test, y_test = run_classical_models(args.xai, args.xai_mode)
 
         # *** SAVE CLASSICAL MODELS ***
         print("\n" + "=" * 80)
@@ -579,8 +582,8 @@ def main():
         print("=" * 80 + "\n")
 
     # Run BERT if configured
-    if RUN_BERT:
-        bert_results, bert_model, X_test_text, y_test_bert, y_pred, y_proba = run_bert_model()
+    if args.bert:
+        bert_results, bert_model, X_test_text, y_test_bert, y_pred, y_proba = run_bert_model(args.xai, args.xai_mode)
 
         # *** SAVE BERT MODEL ***
         print("\n" + "=" * 80)
@@ -590,9 +593,10 @@ def main():
         print("=" * 80 + "\n")
 
     # Run Feature Fusion if configured
-    if RUN_FEATURE_FUSION:
+    if args.fusion:
         # *** NOTE: Now returns scaler as well! ***
-        fusion_results, fusion_model, X_text_test, X_man_test, y_test_fusion, y_pred, y_proba, scaler = run_feature_fusion()
+        fusion_results, fusion_model, X_text_test, X_man_test, y_test_fusion, y_pred, y_proba, scaler = run_feature_fusion(
+            args.xai, args.xai_mode)
 
         # *** SAVE FEATURE FUSION MODEL ***
         print("\n" + "=" * 80)
@@ -614,11 +618,10 @@ def main():
     print("  - Model results: *.csv files")
     print("  - Visualizations: ./visualizations/")
     print("  - Saved models: ./saved_models/")
-    if RUN_XAI:
+    if args.xai:
         print("  - XAI Explanations: ./xai_explanations/")
     print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":
     main()
-
