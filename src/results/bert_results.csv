@@ -1,2 +1,2 @@
-model,test_f1_macro,test_accuracy,test_precision,test_recall,minority_recall,minority_precision,minority_f1
-bert,0.7892496704052583,0.9788504846763928,0.7382062305213787,0.8715594690268954,0.7598039215686274,0.4813664596273292,0.5893536121673004
+model,test_f1_macro,test_accuracy,test_precision,test_recall,minority_recall,minority_precision,minority_f1,majority_recall,majority_precision,majority_f1,roc_auc_score,true_positives,true_negatives,false_positives,false_negatives,cv_score
+bert,0.8360704588776564,0.988739841378635,0.8912995880923609,0.7949700661561457,0.5931372549019608,0.7908496732026143,0.6778711484593838,0.9968028774103307,0.9917495029821074,0.994269769295929,0.966100362614823,121,9977,32,83,

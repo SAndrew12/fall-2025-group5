@@ -1,15 +1,11 @@
 feature,appearances,percentage
 fatalities,14,100.0
-civilian_targeting,14,100.0
+notes_emb_273,14,100.0
 sub_event_type_Armed clash,14,100.0
-sub_event_type_Remote explosive/landmine/IED,14,100.0
-sub_event_type_Attack,14,100.0
-sub_event_type_Shelling/artillery/missile attack,14,100.0
-sub_event_type_Suicide bomb,14,100.0
-sub_event_type_Non-state actor overtakes territory,14,100.0
-sub_event_type_Abduction/forced disappearance,14,100.0
-sub_event_type_Grenade,14,100.0
-violence_against_women,14,100.0
-sub_event_type_Air/drone strike,14,100.0
-sub_event_type_Government regains territory,14,100.0
-sub_event_type_Sexual violence,14,100.0
+civilian_targeting,13,92.85714285714286
+notes_emb_253,12,85.71428571428571
+notes_emb_65,9,64.28571428571429
+notes_emb_255,9,64.28571428571429
+notes_emb_269,8,57.14285714285714
+notes_emb_114,7,50.0
+notes_emb_101,7,50.0
