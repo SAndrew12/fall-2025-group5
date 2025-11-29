@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import argparse
+import os
 from data_loader import load_data
 from feature_eng import feature_creating
 from feature_eng import mask_group_names, mask_location_names
@@ -221,8 +222,8 @@ def run_classical_models(RUN_XAI, XAI_MODE):
     print(best_stats)
 
     # 9. Save results
-    results_df.to_csv("classical_results.csv", index=False)
-    print("\nResults saved to 'classical_results.csv'")
+    results_df.to_csv("results/classical_results.csv", index=False)
+    print("\nResults saved to 'results/classical_results.csv'")
 
     # 10. Generate visualizations
     plot_model_performance(results_df, metric='test_f1_macro')
@@ -346,13 +347,13 @@ def run_bert_model(RUN_XAI, XAI_MODE):
 
     # 9. Save results
     results_df = pd.DataFrame([results])
-    results_df.to_csv("bert_results.csv", index=False)
-    print("\nResults saved to 'bert_results.csv'")
+    results_df.to_csv("results/bert_results.csv", index=False)
+    print("\nResults saved to 'results/bert_results.csv'")
 
     # 10. Save training stats
     training_stats = bert_model.get_training_stats()
-    training_stats.to_csv("bert_training_stats.csv", index=False)
-    print("Training stats saved to 'bert_training_stats.csv'")
+    training_stats.to_csv("results/bert_training_stats.csv", index=False)
+    print("Training stats saved to 'results/bert_training_stats.csv'")
 
     # 11. Visualizations
     from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
@@ -509,13 +510,13 @@ def run_feature_fusion(RUN_XAI, XAI_MODE):
 
     # 10. Save results
     results_df = pd.DataFrame([results])
-    results_df.to_csv("feature_fusion_results.csv", index=False)
-    print("\nResults saved to 'feature_fusion_results.csv'")
+    results_df.to_csv("results/feature_fusion_results.csv", index=False)
+    print("\nResults saved to 'results/feature_fusion_results.csv'")
 
     # 11. Save training stats
     training_stats = fusion_model.get_training_stats()
-    training_stats.to_csv("feature_fusion_training_stats.csv", index=False)
-    print("Training stats saved to 'feature_fusion_training_stats.csv'")
+    training_stats.to_csv("results/feature_fusion_training_stats.csv", index=False)
+    print("Training stats saved to 'results/feature_fusion_training_stats.csv'")
 
     # 12. Visualizations
     from vis import plot_bert_confusion_matrix, plot_bert_roc_pr
@@ -557,6 +558,9 @@ def main():
 
     # Parse command-line arguments
     args = parse_arguments()
+
+    # Create results directory if it doesn't exist
+    os.makedirs('results', exist_ok=True)
 
     print("\n" + "=" * 80)
     print("MACHINE LEARNING PIPELINE")
@@ -615,7 +619,7 @@ def main():
     print("ALL TASKS COMPLETED")
     print("=" * 80)
     print("\nOutputs:")
-    print("  - Model results: *.csv files")
+    print("  - Model results: ./results/")
     print("  - Visualizations: ./visualizations/")
     print("  - Saved models: ./saved_models/")
     if args.xai:
