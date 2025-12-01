@@ -9,6 +9,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import warnings
+import re
 
 warnings.filterwarnings('ignore')
 
@@ -18,7 +19,7 @@ DEMO_DIR = PROJECT_ROOT / "demo"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Define feature sets based on train_test_split.py
+# Define feature sets
 MANUAL_FEATURES = [
     'civilian_targeting',
     'fatalities',
@@ -37,6 +38,79 @@ MANUAL_FEATURES = [
 ]
 
 EMBEDDING_FEATURES = [f'notes_emb_{i}' for i in range(384)]
+
+
+# ============================================================================
+# Text Preprocessing Functions
+# ============================================================================
+
+def mask_group_names(text):
+    """Remove all variants of Taliban and ISIS-K group names"""
+    if not isinstance(text, str):
+        return text
+
+    taliban_variants = [
+        r'\bTaliban\b', r'\bTaleban\b', r'\bTaliban-e\b', r'\bT-Ban\b',
+        r'\bTban\b', r'\bTTP\b', r'\bTehrik-i-Taliban\b', r'\bTehreek-e-Taliban\b',
+    ]
+
+    isis_variants = [
+        r'\bISIS-K\b', r'\bISIS-KP\b', r'\bISIS Khorasan\b', r'\bISIS-Khorasan\b',
+        r'\bISIL-K\b', r'\bISIL Khorasan\b', r'\bIS-K\b', r'\bIS-KP\b',
+        r'\bIslamic State Khorasan\b', r'\bIslamic State in Khorasan\b',
+        r'\bIslamic State of Khorasan\b', r'\bDaesh\b', r"\bDa\'esh\b",
+        r'\bISIS\b', r'\bISIL\b', r'\bIslamic State\b', r'\bIS\b'
+    ]
+
+    all_variants = taliban_variants + isis_variants
+    masked_text = text
+
+    for pattern in all_variants:
+        masked_text = re.sub(pattern, '', masked_text, flags=re.IGNORECASE)
+
+    # Clean up multiple spaces
+    masked_text = re.sub(r'\s+', ' ', masked_text).strip()
+    return masked_text
+
+
+def mask_location_names(text):
+    """Remove all location names (provinces and districts) from text"""
+    if not isinstance(text, str):
+        return text
+
+    provinces = ['Wardak', 'Shewa', 'Farah', 'Helmand', 'Kandahar', 'Nimruz', 'Paktia', 'Paktika',
+                 'Parwan', 'Logar', 'Kunar', 'Ghazni', 'Laghman', 'Herat', 'Kabul', 'Sar-e Pol',
+                 'Nangarhar', 'Nangahar', 'Khost', 'Zabul', 'Badakhshan', 'Faryab', 'Kunduz', 'Badghis',
+                 'Balkh', 'Kapisa', 'Baghlan', 'Samangan', 'Urozgan', 'Jowzjan', 'Daykundi',
+                 'Nuristan', 'Takhar', 'Ghor', 'Bamyan', 'Panjshir', 'Khatlon']
+
+    districts = ['Sayyid Abad', 'Bala Buluk', 'Lashkargah', 'Nahr-i-Saraj', 'Maruf', 'Khashrod',
+                 'Zurmat', 'Sar Rawza', 'Bagram', 'Khak-i-Safed', 'Baraki Barak', 'Sangin',
+                 'Sar Kani', 'Waghaz', 'Charkh', 'Dawlat Shah', 'Kushk-i-Kuhna', 'Surubi',
+                 'Herat', 'Sancharak', 'Shinwar', 'Ghazi Abad', 'Andar', 'Nawa-i-Barikzayi',
+                 'Nad Ali', 'Mata Khan', 'Puli Alam', 'Khost', 'Shemel Zayi', 'Gelan', 'Maiwand',
+                 'Ghazni', 'Bati Kot', 'Faiz Abad', 'Gardez', 'Almar', 'Dangam', 'Rodat', 'Nesh',
+                 'Spin Boldak', 'Mohammad Agha', 'Farah', 'Khan Abad', 'Shindand', 'Pushtrud',
+                 'Jalalabad', 'Mazar-e-Sharif', 'Kandahar', 'Kunduz', 'Kabul']  # Shortened for brevity
+
+    all_locations = provinces + districts
+    all_locations.sort(key=len, reverse=True)
+
+    masked_text = text
+    for location in all_locations:
+        pattern = r'\b' + re.escape(location) + r'\b'
+        masked_text = re.sub(pattern, '', masked_text, flags=re.IGNORECASE)
+
+    # Clean up multiple spaces
+    masked_text = re.sub(r'\s+', ' ', masked_text).strip()
+    return masked_text
+
+
+def preprocess_notes(text):
+    """Apply all preprocessing to notes text"""
+    text = mask_group_names(text)
+    text = mask_location_names(text)
+    return text
 
 
 # ============================================================================
@@ -154,25 +228,28 @@ def load_and_filter_data(csv_path):
     """Load CSV and filter to Taliban/ISIS-K attacks only"""
     df = pd.read_csv(csv_path)
     filtered_df = df[df['actor1'] == 'Taliban and/or Islamic State Khorasan Province (ISKP)'].copy()
+
+    # Apply text preprocessing to notes column
+    filtered_df['notes_processed'] = filtered_df['notes'].apply(preprocess_notes)
+
     return filtered_df
 
 
-def prepare_data_for_model(df, model_type):
+def prepare_data_for_model(df, model_type, use_processed_notes=True):
     """
-    Prepare data based on model type:
-    - Classical: manual features + embeddings
-    - BERT: just notes text
-    - BERT-Hybrid: manual features + notes text
+    Prepare data based on model type
     """
+    notes_col = 'notes_processed' if use_processed_notes else 'notes'
+
     if model_type == "Classical":
         feature_cols = MANUAL_FEATURES + EMBEDDING_FEATURES
         return df[feature_cols]
 
     elif model_type == "BERT":
-        return df[['notes']]
+        return df[[notes_col]]
 
     elif model_type == "BERT-Hybrid":
-        feature_cols = MANUAL_FEATURES + ['notes']
+        feature_cols = MANUAL_FEATURES + [notes_col]
         return df[feature_cols]
 
     return df
@@ -206,12 +283,10 @@ def load_bert_model(model_dir):
 @st.cache_resource
 def load_bert_hybrid_model(model_dir):
     """Load BERT-Hybrid (Feature Fusion) model"""
-    # Load model checkpoint
     checkpoint = torch.load(f"{model_dir}/model.pt", map_location=device)
     num_manual_features = checkpoint.get('num_manual_features', 14)
     prediction_threshold = checkpoint.get('prediction_threshold', 0.5)
 
-    # Create model architecture
     model = BERTWithManualFeatures(
         bert_model_name='bert-base-uncased',
         num_manual_features=num_manual_features,
@@ -219,15 +294,12 @@ def load_bert_hybrid_model(model_dir):
         dropout=0.3
     )
 
-    # Load weights
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
     model.eval()
 
-    # Load tokenizer
     tokenizer = BertTokenizer.from_pretrained(model_dir)
 
-    # Load feature scaler if exists
     scaler_path = f"{model_dir}/feature_scaler.pkl"
     scaler = None
     if pathlib.Path(scaler_path).exists():
@@ -238,73 +310,72 @@ def load_bert_hybrid_model(model_dir):
 
 
 # ============================================================================
-# Prediction Functions
+# Single-Row Prediction Functions
 # ============================================================================
 
-def predict_classical(model, preprocessor, X):
-    """Make predictions with classical model"""
-    X_processed = preprocessor.transform(X)
-    predictions = model.predict(X_processed)
-    probabilities = model.predict_proba(X_processed) if hasattr(model, 'predict_proba') else None
-    return predictions, probabilities
+def predict_single_classical(model, preprocessor, X_single):
+    """Make prediction for a single sample with classical model"""
+    X_processed = preprocessor.transform(X_single.reshape(1, -1))
+    prediction = model.predict(X_processed)[0]
+    probability = model.predict_proba(X_processed)[0] if hasattr(model, 'predict_proba') else None
+    return prediction, probability
 
 
-def predict_bert(model, tokenizer, texts, batch_size=16, max_length=128):
-    """Make predictions with BERT model"""
-    dataset = TextDataset(texts.tolist(), tokenizer, max_length)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+def predict_single_bert(model, tokenizer, text, max_length=128):
+    """Make prediction for a single text with BERT model"""
+    encoding = tokenizer.encode_plus(
+        str(text),
+        add_special_tokens=True,
+        max_length=max_length,
+        padding='max_length',
+        truncation=True,
+        return_attention_mask=True,
+        return_tensors='pt'
+    )
 
-    predictions = []
-    probabilities = []
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device)
 
     with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits
+        probs = torch.softmax(logits, dim=1)
+        prediction = torch.argmax(probs, dim=1).cpu().numpy()[0]
+        probability = probs.cpu().numpy()[0]
 
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits
-            probs = torch.softmax(logits, dim=1)
-            preds = torch.argmax(probs, dim=1)
-
-            predictions.extend(preds.cpu().numpy())
-            probabilities.extend(probs.cpu().numpy())
-
-    return np.array(predictions), np.array(probabilities)
+    return prediction, probability
 
 
-def predict_bert_hybrid(model, tokenizer, scaler, texts, manual_features,
-                        batch_size=16, max_length=320, threshold=0.5):
-    """Make predictions with BERT-Hybrid model"""
+def predict_single_bert_hybrid(model, tokenizer, scaler, text, manual_features,
+                               max_length=320, threshold=0.5):
+    """Make prediction for a single sample with BERT-Hybrid model"""
     # Scale manual features if scaler exists
     if scaler is not None:
-        manual_features = scaler.transform(manual_features)
+        manual_features = scaler.transform(manual_features.reshape(1, -1))
+    else:
+        manual_features = manual_features.reshape(1, -1)
 
-    dataset = TextFeatureDataset(
-        texts.tolist(),
-        manual_features,
-        tokenizer,
-        max_length
+    encoding = tokenizer.encode_plus(
+        str(text),
+        add_special_tokens=True,
+        max_length=max_length,
+        padding='max_length',
+        truncation=True,
+        return_attention_mask=True,
+        return_tensors='pt'
     )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    predictions = []
-    probabilities = []
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device)
+    manual_feat = torch.tensor(manual_features, dtype=torch.float).to(device)
 
     with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            manual_feat = batch['manual_features'].to(device)
+        logits = model(input_ids, attention_mask, manual_feat)
+        probs = torch.softmax(logits, dim=1)
+        prediction = (probs[:, 1] >= threshold).long().cpu().numpy()[0]
+        probability = probs.cpu().numpy()[0]
 
-            logits = model(input_ids, attention_mask, manual_feat)
-            probs = torch.softmax(logits, dim=1)
-            preds = (probs[:, 1] >= threshold).long()
-
-            predictions.extend(preds.cpu().numpy())
-            probabilities.extend(probs.cpu().numpy())
-
-    return np.array(predictions), np.array(probabilities)
+    return prediction, probability
 
 
 # ============================================================================
@@ -317,10 +388,12 @@ def main():
     st.title("🎯 Taliban vs ISIS-K Attack Classifier Demo")
 
     st.markdown("""
-    This demo showcases three different approaches to classifying conflict events in Afghanistan:
+    This demo classifies individual conflict events using three different approaches:
     - **Classical ML**: Random Forest, XGBoost, MLP with manual features + embeddings
-    - **BERT**: Fine-tuned BERT using event descriptions
+    - **BERT**: Fine-tuned BERT using preprocessed event descriptions
     - **BERT-Hybrid**: Feature fusion combining BERT with manual features
+
+    **Text Preprocessing**: Group names (Taliban, ISIS-K) and location names are removed before classification.
     """)
 
     # ---- Sidebar: Model Selection ----
@@ -352,7 +425,7 @@ def main():
         st.markdown(f"**Device:** {device}")
 
     # ---- Load Data ----
-    st.header("📊 Data")
+    st.header("📊 Data Selection")
 
     sample_csv = DEMO_DIR / "unattributed_attacks_processed.csv"
 
@@ -364,35 +437,60 @@ def main():
     with st.spinner("Loading data..."):
         df = load_and_filter_data(sample_csv)
 
-    st.success(f"✅ Loaded **{len(df)}** Taliban/ISIS-K attacks for classification")
+    st.success(f"✅ Loaded **{len(df)}** Taliban/ISIS-K attacks")
 
-    # Prepare data based on model type
-    prepared_data = prepare_data_for_model(df, model_type)
+    # Create display dataframe with important columns
+    display_df = df[['event_id_cnty', 'event_date', 'location', 'fatalities', 'notes']].copy()
+    display_df['row_number'] = range(len(display_df))
 
-    # Show data info
+    # ---- Row Selection ----
+    st.subheader("Select an Event to Classify")
+
+    # Create options for selectbox
+    options = []
+    for idx, row in display_df.iterrows():
+        option_text = f"Row {row['row_number']}: {row['event_date']} - {row['location']} ({row['fatalities']} deaths) - {row['notes'][:80]}..."
+        options.append((idx, option_text))
+
+    selected_idx = st.selectbox(
+        "Choose an event:",
+        options,
+        format_func=lambda x: x[1],
+        key='event_selector'
+    )[0]
+
+    # Show selected event details
+    st.divider()
+    st.subheader("📋 Selected Event Details")
+
+    selected_row = df.loc[selected_idx]
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Samples", len(prepared_data))
+        st.metric("Event ID", selected_row['event_id_cnty'])
+        st.metric("Date", selected_row['event_date'])
     with col2:
-        if model_type == "BERT":
-            st.metric("Features", "Text Only")
-        else:
-            st.metric("Features", len(prepared_data.columns))
+        st.metric("Location", selected_row['location'])
+        st.metric("Fatalities", int(selected_row['fatalities']))
     with col3:
-        st.metric("Model Type", model_type)
+        st.metric("Civilian Targeting", "Yes" if selected_row['civilian_targeting'] == 1 else "No")
+        st.metric("Violence vs Women", "Yes" if selected_row.get('violence_against_women', 0) == 1 else "No")
 
-    # Show data preview
-    with st.expander("👁️ View Data Preview"):
-        if model_type == "BERT":
-            st.dataframe(prepared_data.head(10), use_container_width=True, height=300)
-        else:
-            st.dataframe(prepared_data.head(10), use_container_width=True, height=300)
+    # Show original and processed notes
+    with st.expander("📝 View Event Description"):
+        st.markdown("**Original Notes:**")
+        st.write(selected_row['notes'])
 
-    # ---- Load Model and Make Predictions ----
-    st.header("🤖 Model Predictions")
+        st.markdown("**Preprocessed Notes (group names & locations removed):**")
+        st.write(selected_row['notes_processed'])
 
-    if st.button("🚀 Run Predictions", type="primary"):
+    # ---- Make Prediction ----
+    st.divider()
+    st.header("🤖 Model Prediction")
+
+    if st.button("🚀 Classify This Event", type="primary", use_container_width=True):
         try:
+            # Load model
             with st.spinner(f"Loading {model_type} model..."):
                 if model_type == "Classical":
                     model_path = model_dir / selected_model
@@ -407,71 +505,58 @@ def main():
 
             st.success("✅ Model loaded successfully!")
 
-            # Make predictions
-            with st.spinner("Making predictions..."):
+            # Prepare data and make prediction
+            with st.spinner("Making prediction..."):
                 if model_type == "Classical":
-                    X = prepared_data.values
-                    predictions, probabilities = predict_classical(model, preprocessor, X)
+                    # Get features for this row
+                    prepared = prepare_data_for_model(df, model_type)
+                    X_single = prepared.iloc[selected_idx].values
+                    prediction, probability = predict_single_classical(model, preprocessor, X_single)
 
                 elif model_type == "BERT":
-                    texts = prepared_data['notes']
-                    predictions, probabilities = predict_bert(model, tokenizer, texts)
+                    # Get preprocessed notes
+                    text = selected_row['notes_processed']
+                    prediction, probability = predict_single_bert(model, tokenizer, text)
 
                 elif model_type == "BERT-Hybrid":
-                    texts = prepared_data['notes']
-                    manual_feats = prepared_data[MANUAL_FEATURES].values
-                    predictions, probabilities = predict_bert_hybrid(
-                        model, tokenizer, scaler, texts, manual_feats, threshold=threshold
+                    # Get preprocessed notes and manual features
+                    text = selected_row['notes_processed']
+                    manual_feats = selected_row[MANUAL_FEATURES].values
+                    prediction, probability = predict_single_bert_hybrid(
+                        model, tokenizer, scaler, text, manual_feats, threshold=threshold
                     )
 
-            st.success("✅ Predictions complete!")
-
             # Display results
-            st.subheader("📈 Results")
+            st.success("✅ Prediction complete!")
 
-            # Class distribution
-            pred_counts = pd.Series(predictions).value_counts()
-            col1, col2 = st.columns(2)
+            st.subheader("📊 Results")
+
+            # Prediction
+            pred_label = "Taliban (Class 0)" if prediction == 0 else "ISIS-K (Class 1)"
+            pred_color = "blue" if prediction == 0 else "red"
+
+            col1, col2, col3 = st.columns(3)
 
             with col1:
-                st.metric("Predicted Taliban (Class 0)",
-                          int(pred_counts.get(0, 0)),
-                          delta=f"{pred_counts.get(0, 0) / len(predictions) * 100:.1f}%")
+                st.markdown(f"### Prediction")
+                st.markdown(f"<h2 style='color: {pred_color};'>{pred_label}</h2>", unsafe_allow_html=True)
 
             with col2:
-                st.metric("Predicted ISIS-K (Class 1)",
-                          int(pred_counts.get(1, 0)),
-                          delta=f"{pred_counts.get(1, 0) / len(predictions) * 100:.1f}%")
+                st.markdown(f"### Confidence")
+                confidence = probability[prediction] * 100
+                st.markdown(f"<h2>{confidence:.1f}%</h2>", unsafe_allow_html=True)
 
-            # Create results dataframe
-            results_df = df.copy()
-            results_df['prediction'] = predictions
-            results_df['prediction_label'] = results_df['prediction'].map({0: 'Taliban', 1: 'ISIS-K'})
+            with col3:
+                st.markdown(f"### Probabilities")
+                st.write(f"Taliban: {probability[0] * 100:.1f}%")
+                st.write(f"ISIS-K: {probability[1] * 100:.1f}%")
 
-            if probabilities is not None:
-                results_df['prob_taliban'] = probabilities[:, 0]
-                results_df['prob_isis_k'] = probabilities[:, 1]
-                results_df['confidence'] = np.max(probabilities, axis=1)
-
-            # Display results table
-            display_cols = ['event_id_cnty', 'event_date', 'location', 'notes',
-                            'prediction_label', 'confidence'] if probabilities is not None else \
-                ['event_id_cnty', 'event_date', 'location', 'notes', 'prediction_label']
-
-            st.dataframe(
-                results_df[display_cols].head(20),
-                use_container_width=True,
-                height=400
-            )
-
-            # Download results
-            csv = results_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Full Results as CSV",
-                data=csv,
-                file_name=f"predictions_{model_type.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+            # Probability bar chart
+            prob_df = pd.DataFrame({
+                'Class': ['Taliban', 'ISIS-K'],
+                'Probability': [probability[0], probability[1]]
+            })
+            st.bar_chart(prob_df.set_index('Class'))
 
         except Exception as e:
             st.error(f"❌ Error during prediction: {str(e)}")
