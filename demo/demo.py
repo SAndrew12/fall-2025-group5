@@ -258,30 +258,21 @@ def prepare_data_for_model(df, model_type, use_processed_notes=True):
 
 @st.cache_resource
 def load_classical_model(model_path, preprocessor_path):
-    """Load a classical ML model and its preprocessor with better error handling"""
+    """Load a classical ML model and its preprocessor saved with joblib."""
+    # Load model
     try:
-        # Try normal loading first
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
+        model = joblib.load(model_path)
     except Exception as e:
-        # If that fails, try with different encoding
-        try:
-            with open(model_path, 'rb') as f:
-                model = pickle.load(f, encoding='latin1')
-        except:
-            raise Exception(f"Could not load model from {model_path}. Error: {str(e)}")
+        raise Exception(f"Could not load model from {model_path}. Error: {str(e)}")
 
+    # Load preprocessor(s)
     try:
-        with open(preprocessor_path, 'rb') as f:
-            preprocessor = pickle.load(f)
+        preprocessor = joblib.load(preprocessor_path)
     except Exception as e:
-        try:
-            with open(preprocessor_path, 'rb') as f:
-                preprocessor = pickle.load(f, encoding='latin1')
-        except:
-            raise Exception(f"Could not load preprocessor from {preprocessor_path}. Error: {str(e)}")
+        raise Exception(f"Could not load preprocessor from {preprocessor_path}. Error: {str(e)}")
 
     return model, preprocessor
+
 
 
 @st.cache_resource
