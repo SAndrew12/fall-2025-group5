@@ -225,8 +225,8 @@ class BERTWithManualFeatures(nn.Module):
 def load_and_filter_data(csv_path):
     """Load CSV and filter to Taliban/ISIS-K attacks only"""
     df = pd.read_csv(csv_path)
-    filtered_df = df[df['actor1'] == 'Taliban and/or Islamic State Khorasan Province (ISKP)'].copy()
-
+    #filtered_df = df[df['actor1'] == 'Taliban and/or Islamic State Khorasan Province (ISKP)'].copy()
+    filtered_df = df
     # Apply text preprocessing to notes column
     filtered_df['notes_processed'] = filtered_df['notes'].apply(preprocess_notes)
 
