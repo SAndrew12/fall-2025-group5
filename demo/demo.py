@@ -304,7 +304,7 @@ def load_classical_model(model_path, preprocessor_path):
         # Check if the model file contains a tuple (model, preprocessor)
         if isinstance(loaded_model, tuple):
             model = loaded_model[0]
-            st.info("ℹ️ Model file contained tuple - extracted model object")
+            st.info(" Model file contained tuple - extracted model object")
         else:
             model = loaded_model
 
@@ -354,13 +354,13 @@ def load_bert_hybrid_model(model_dir):
     if scaler_path.exists():
         try:
             scaler = joblib.load(scaler_path)
-            st.success("✅ Feature scaler loaded successfully")
+            st.success(" Feature scaler loaded successfully")
         except Exception as e:
-            st.error(f"❌ Could not load scaler from {scaler_path}. Predictions may be incorrect.")
+            st.error(f" Could not load scaler from {scaler_path}. Predictions may be incorrect.")
             st.error(f"Error: {str(e)}")
             scaler = None
     else:
-        st.error(f"❌ Scaler file not found: {scaler_path}")
+        st.error(f" Scaler file not found: {scaler_path}")
         st.error("The model was trained WITH feature scaling. Predictions will be incorrect without the scaler!")
 
     return model, tokenizer, scaler, prediction_threshold
@@ -410,7 +410,7 @@ def predict_bert_hybrid(model, tokenizer, scaler, texts, manual_features,
     if scaler is not None:
         manual_features = scaler.transform(manual_features)
     else:
-        st.warning("⚠️ No scaler available - predictions may be incorrect!")
+        st.warning("No scaler available - predictions may be incorrect!")
 
     dataset = TextFeatureDataset(
         texts.tolist(),
@@ -440,16 +440,90 @@ def predict_bert_hybrid(model, tokenizer, scaler, texts, manual_features,
 
 
 # ============================================================================
+# Single Event Prediction Functions
+# ============================================================================
+
+def predict_single_classical(model, preprocessor, X_single):
+    """Make prediction for a single event with classical model"""
+    # X_single should be a DataFrame with one row
+    X_processed = apply_preprocessors(preprocessor, X_single)
+    prediction = model.predict(X_processed)[0]
+    probability = model.predict_proba(X_processed)[0] if hasattr(model, 'predict_proba') else None
+    return prediction, probability
+
+
+def predict_single_bert(model, tokenizer, text, max_length=128):
+    """Make prediction for a single event with BERT model"""
+    encoding = tokenizer.encode_plus(
+        text,
+        add_special_tokens=True,
+        max_length=max_length,
+        padding='max_length',
+        truncation=True,
+        return_attention_mask=True,
+        return_tensors='pt'
+    )
+
+    with torch.no_grad():
+        input_ids = encoding['input_ids'].to(device)
+        attention_mask = encoding['attention_mask'].to(device)
+
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits
+        probs = torch.softmax(logits, dim=1)
+        pred = torch.argmax(probs, dim=1)
+
+        prediction = pred.cpu().numpy()[0]
+        probability = probs.cpu().numpy()[0]
+
+    return prediction, probability
+
+
+def predict_single_bert_hybrid(model, tokenizer, scaler, text, manual_features,
+                               max_length=320, threshold=0.5):
+    """Make prediction for a single event with BERT-Hybrid model"""
+    # Scale manual features if scaler is provided
+    if scaler is not None:
+        manual_features_scaled = scaler.transform(manual_features.reshape(1, -1))
+    else:
+        manual_features_scaled = manual_features.reshape(1, -1)
+
+    encoding = tokenizer.encode_plus(
+        text,
+        add_special_tokens=True,
+        max_length=max_length,
+        padding='max_length',
+        truncation=True,
+        return_attention_mask=True,
+        return_tensors='pt'
+    )
+
+    with torch.no_grad():
+        input_ids = encoding['input_ids'].to(device)
+        attention_mask = encoding['attention_mask'].to(device)
+        manual_feat = torch.tensor(manual_features_scaled, dtype=torch.float).to(device)
+
+        logits = model(input_ids, attention_mask, manual_feat)
+        probs = torch.softmax(logits, dim=1)
+        pred = (probs[:, 1] >= threshold).long()
+
+        prediction = pred.cpu().numpy()[0]
+        probability = probs.cpu().numpy()[0]
+
+    return prediction, probability
+
+
+# ============================================================================
 # Streamlit App
 # ============================================================================
 
 def main():
     st.set_page_config(page_title="Taliban vs ISIS-K Classifier", layout="wide")
 
-    st.title("🎯 Taliban vs ISIS-K Attack Classifier - Batch Predictions")
+    st.title("Taliban vs ISIS-K Attack Classifier")
 
     st.markdown("""
-    This demo classifies all conflict events at once using three different approaches:
+    This demo classifies conflict events using three different approaches:
     - **Classical ML**: Random Forest, XGBoost, MLP with manual features + embeddings
     - **BERT**: Fine-tuned BERT using preprocessed event descriptions
     - **BERT-Hybrid**: Feature fusion combining BERT with manual features
@@ -459,7 +533,7 @@ def main():
 
     # ---- Sidebar: Model Selection ----
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header(" Configuration")
 
         model_type = st.selectbox(
             "Model Type:",
@@ -491,19 +565,19 @@ def main():
         st.markdown(f"**Device:** {device}")
 
     # ---- Load Data ----
-    st.header("📊 Data")
+    st.header("Data")
 
     sample_csv = DEMO_DIR / "unattributed_attacks_processed.csv"
 
     if not sample_csv.exists():
-        st.error(f"❌ Data file not found: {sample_csv}")
+        st.error(f" Data file not found: {sample_csv}")
         return
 
     # Load and filter data
     with st.spinner("Loading data..."):
         df = load_and_filter_data(sample_csv)
 
-    st.success(f"✅ Loaded **{len(df)}** Taliban/ISIS-K attacks for classification")
+    st.success(f"Loaded **{len(df)}** Taliban/ISIS-K attacks for classification")
 
     # Prepare data based on model type
     prepared_data = prepare_data_for_model(df, model_type)
@@ -521,7 +595,7 @@ def main():
         st.metric("Model Type", model_type)
 
     # Show data preview
-    with st.expander("👁️ View Data Preview (first 10 rows)"):
+    with st.expander("👁Vew Data Preview (first 10 rows)"):
         if model_type == "BERT":
             preview_df = pd.DataFrame({
                 'event_id': df['event_id_cnty'].head(10).values,
@@ -533,129 +607,243 @@ def main():
         else:
             st.dataframe(prepared_data.head(10), use_container_width=True, height=300)
 
-    # ---- Load Model and Make Predictions ----
-    st.header("🤖 Batch Predictions")
+    # ---- Prediction Tabs ----
+    tab1, tab2 = st.tabs(["Single Event Classification", " Batch Predictions"])
 
-    if st.button("🚀 Run Predictions on All Events", type="primary", use_container_width=True):
-        try:
-            with st.spinner(f"Loading {model_type} model..."):
-                if model_type == "Classical":
-                    model_path = model_dir / selected_model
-                    preprocessor_path = model_dir / "preprocessors.pkl"
-                    model, preprocessor = load_classical_model(model_path, preprocessor_path)
+    # ====================
+    # TAB 1: Single Event
+    # ====================
+    with tab1:
+        st.header(" Single Event Classification")
+        st.markdown("Select an individual event to classify")
 
-                elif model_type == "BERT":
-                    model, tokenizer = load_bert_model(model_dir)
+        # Event selection
+        event_options = [f"{row['event_id_cnty']} - {row['event_date']} - {row['location']}"
+                         for idx, row in df.iterrows()]
+        selected_event_str = st.selectbox(
+            "Select Event:",
+            event_options,
+            help="Choose an event to classify"
+        )
 
-                elif model_type == "BERT-Hybrid":
-                    model, tokenizer, scaler, threshold = load_bert_hybrid_model(model_dir)
+        # Get the selected event index
+        selected_idx = event_options.index(selected_event_str)
+        selected_row = df.iloc[selected_idx]
 
-            st.success("✅ Model loaded successfully!")
+        # Display event details
+        st.subheader("Event Details")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Event ID", selected_row['event_id_cnty'])
+        with col2:
+            st.metric("Date", selected_row['event_date'])
+        with col3:
+            st.metric("Fatalities", int(selected_row['fatalities']))
 
-            # Make predictions
-            with st.spinner(f"Making predictions on {len(df)} events..."):
-                # Sanity checks
-                if model_type == "Classical":
-                    if not (model_dir / selected_model).exists():
-                        st.error(f"Model file not found: {model_dir / selected_model}")
-                        st.stop()
-                    if not (model_dir / "preprocessors.pkl").exists():
-                        st.error(f"Preprocessor file not found: {model_dir / 'preprocessors.pkl'}")
-                        st.stop()
+        st.markdown(f"**Location:** {selected_row['location']}")
+        st.markdown("**Event Description:**")
+        st.info(selected_row['notes'])
 
-                elif model_type == "BERT-Hybrid":
-                    if not (model_dir / "model.pt").exists():
-                        st.error(f"Model file not found: {model_dir / 'model.pt'}")
-                        st.info(f"Looking in directory: {model_dir}")
-                        st.info(
-                            f"Files available: {list(model_dir.iterdir()) if model_dir.exists() else 'Directory does not exist'}")
-                        st.stop()
+        # Classify button
+        if st.button(" Classify This Event", type="primary", use_container_width=True, key="single_classify"):
+            try:
+                with st.spinner(f"Loading {model_type} model..."):
+                    if model_type == "Classical":
+                        model_path = model_dir / selected_model
+                        preprocessor_path = model_dir / "preprocessors.pkl"
+                        model, preprocessor = load_classical_model(model_path, preprocessor_path)
 
-                # Now make predictions
-                if model_type == "Classical":
-                    X = prepared_data  # keep as DataFrame for preprocessors
-                    predictions, probabilities = predict_classical(model, preprocessor, X)
+                    elif model_type == "BERT":
+                        model, tokenizer = load_bert_model(model_dir)
 
-                elif model_type == "BERT":
-                    texts = prepared_data['notes_processed']
-                    predictions, probabilities = predict_bert(model, tokenizer, texts)
+                    elif model_type == "BERT-Hybrid":
+                        model, tokenizer, scaler, threshold = load_bert_hybrid_model(model_dir)
 
-                elif model_type == "BERT-Hybrid":
-                    texts = prepared_data['notes_processed']
-                    manual_feats = prepared_data[MANUAL_FEATURES].values
-                    predictions, probabilities = predict_bert_hybrid(
-                        model, tokenizer, scaler, texts, manual_feats, threshold=threshold
-                    )
+                st.success(" Model loaded successfully!")
 
-            st.success("✅ Predictions complete!")
+                # Make prediction
+                with st.spinner("Classifying event..."):
+                    if model_type == "Classical":
+                        X_single = prepared_data.iloc[[selected_idx]]
+                        prediction, probability = predict_single_classical(model, preprocessor, X_single)
 
-            # Display results
-            st.subheader("📈 Results Summary")
+                    elif model_type == "BERT":
+                        text = prepared_data.iloc[selected_idx]['notes_processed']
+                        prediction, probability = predict_single_bert(model, tokenizer, text)
 
-            # Class distribution
-            pred_counts = pd.Series(predictions).value_counts()
-            col1, col2 = st.columns(2)
+                    elif model_type == "BERT-Hybrid":
+                        text = prepared_data.iloc[selected_idx]['notes_processed']
+                        manual_feats = prepared_data.iloc[selected_idx][MANUAL_FEATURES].values
+                        prediction, probability = predict_single_bert_hybrid(
+                            model, tokenizer, scaler, text, manual_feats, threshold=threshold
+                        )
 
-            with col1:
-                st.metric("Predicted Taliban (Class 0)",
-                          int(pred_counts.get(0, 0)),
-                          delta=f"{pred_counts.get(0, 0) / len(predictions) * 100:.1f}%")
+                # Display prediction
+                st.success(" Classification complete!")
 
-            with col2:
-                st.metric("Predicted ISIS-K (Class 1)",
-                          int(pred_counts.get(1, 0)),
-                          delta=f"{pred_counts.get(1, 0) / len(predictions) * 100:.1f}%")
+                st.subheader("Prediction Results")
 
-            # Create results dataframe
-            results_df = df[['event_id_cnty', 'event_date', 'location', 'fatalities', 'notes']].copy()
-            results_df['prediction'] = predictions
-            results_df['prediction_label'] = results_df['prediction'].map({0: 'Taliban', 1: 'ISIS-K'})
+                prediction_label = "Taliban" if prediction == 0 else "ISIS-K"
 
-            if probabilities is not None:
-                results_df['prob_taliban'] = probabilities[:, 0]
-                results_df['prob_isis_k'] = probabilities[:, 1]
-                results_df['confidence'] = np.max(probabilities, axis=1)
+                # Color-coded prediction
+                if prediction == 0:
+                    st.success(f"### Predicted: **{prediction_label}**")
+                else:
+                    st.error(f"### Predicted: **{prediction_label}**")
 
-            # Display results table
-            st.subheader("📋 Detailed Results")
+                # Show probabilities
+                if probability is not None:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric(
+                            "Taliban Probability",
+                            f"{probability[0]:.1%}",
+                            help="Confidence that this is a Taliban attack"
+                        )
+                    with col2:
+                        st.metric(
+                            "ISIS-K Probability",
+                            f"{probability[1]:.1%}",
+                            help="Confidence that this is an ISIS-K attack"
+                        )
 
-            display_cols = ['event_id_cnty', 'event_date', 'location', 'fatalities',
-                            'prediction_label', 'confidence', 'prob_taliban',
-                            'prob_isis_k'] if probabilities is not None else \
-                ['event_id_cnty', 'event_date', 'location', 'fatalities', 'prediction_label']
+                    # Confidence bar
+                    st.markdown("**Confidence:**")
+                    confidence = max(probability)
+                    st.progress(confidence)
+                    st.caption(f"{confidence:.1%} confidence in prediction")
 
-            st.dataframe(
-                results_df[display_cols],
-                use_container_width=True,
-                height=400
-            )
+            except Exception as e:
+                st.error(f" Error during prediction: {str(e)}")
+                st.exception(e)
 
-            # Show sample predictions with notes
-            with st.expander("📝 View Sample Predictions with Event Descriptions"):
-                sample_size = min(10, len(results_df))
-                sample_df = results_df[['event_id_cnty', 'event_date', 'location', 'notes',
-                                        'prediction_label', 'confidence']].head(sample_size)
+    # ====================
+    # TAB 2: Batch Predictions
+    # ====================
+    with tab2:
+        st.header(" Batch Predictions")
+        st.markdown("Classify all events at once")
 
-                for idx, row in sample_df.iterrows():
-                    st.markdown(f"**{row['event_id_cnty']}** - {row['event_date']} - {row['location']}")
-                    st.write(f"*{row['notes'][:200]}...*")
-                    st.markdown(
-                        f"**Prediction:** {row['prediction_label']} ({row['confidence'] * 100:.1f}% confidence)")
-                    st.divider()
+        if st.button("Run Predictions on All Events", type="primary", use_container_width=True, key="batch_classify"):
+            try:
+                with st.spinner(f"Loading {model_type} model..."):
+                    if model_type == "Classical":
+                        model_path = model_dir / selected_model
+                        preprocessor_path = model_dir / "preprocessors.pkl"
+                        model, preprocessor = load_classical_model(model_path, preprocessor_path)
 
-            # Download results
-            csv = results_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Full Results as CSV",
-                data=csv,
-                file_name=f"predictions_{model_type.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+                    elif model_type == "BERT":
+                        model, tokenizer = load_bert_model(model_dir)
 
-        except Exception as e:
-            st.error(f"❌ Error during prediction: {str(e)}")
-            st.exception(e)
+                    elif model_type == "BERT-Hybrid":
+                        model, tokenizer, scaler, threshold = load_bert_hybrid_model(model_dir)
+
+                st.success(" Model loaded successfully!")
+
+                # Make predictions
+                with st.spinner(f"Making predictions on {len(df)} events..."):
+                    # Sanity checks
+                    if model_type == "Classical":
+                        if not (model_dir / selected_model).exists():
+                            st.error(f"Model file not found: {model_dir / selected_model}")
+                            st.stop()
+                        if not (model_dir / "preprocessors.pkl").exists():
+                            st.error(f"Preprocessor file not found: {model_dir / 'preprocessors.pkl'}")
+                            st.stop()
+
+                    elif model_type == "BERT-Hybrid":
+                        if not (model_dir / "model.pt").exists():
+                            st.error(f"Model file not found: {model_dir / 'model.pt'}")
+                            st.info(f"Looking in directory: {model_dir}")
+                            st.info(
+                                f"Files available: {list(model_dir.iterdir()) if model_dir.exists() else 'Directory does not exist'}")
+                            st.stop()
+
+                    # Now make predictions
+                    if model_type == "Classical":
+                        X = prepared_data  # keep as DataFrame for preprocessors
+                        predictions, probabilities = predict_classical(model, preprocessor, X)
+
+                    elif model_type == "BERT":
+                        texts = prepared_data['notes_processed']
+                        predictions, probabilities = predict_bert(model, tokenizer, texts)
+
+                    elif model_type == "BERT-Hybrid":
+                        texts = prepared_data['notes_processed']
+                        manual_feats = prepared_data[MANUAL_FEATURES].values
+                        predictions, probabilities = predict_bert_hybrid(
+                            model, tokenizer, scaler, texts, manual_feats, threshold=threshold
+                        )
+
+                st.success("Predictions complete!")
+
+                # Display results
+                st.subheader(" Results Summary")
+
+                # Class distribution
+                pred_counts = pd.Series(predictions).value_counts()
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.metric("Predicted Taliban (Class 0)",
+                              int(pred_counts.get(0, 0)),
+                              delta=f"{pred_counts.get(0, 0) / len(predictions) * 100:.1f}%")
+
+                with col2:
+                    st.metric("Predicted ISIS-K (Class 1)",
+                              int(pred_counts.get(1, 0)),
+                              delta=f"{pred_counts.get(1, 0) / len(predictions) * 100:.1f}%")
+
+                # Create results dataframe
+                results_df = df[['event_id_cnty', 'event_date', 'location', 'fatalities', 'notes']].copy()
+                results_df['prediction'] = predictions
+                results_df['prediction_label'] = results_df['prediction'].map({0: 'Taliban', 1: 'ISIS-K'})
+
+                if probabilities is not None:
+                    results_df['prob_taliban'] = probabilities[:, 0]
+                    results_df['prob_isis_k'] = probabilities[:, 1]
+                    results_df['confidence'] = np.max(probabilities, axis=1)
+
+                # Display results table
+                st.subheader(" Detailed Results")
+
+                display_cols = ['event_id_cnty', 'event_date', 'location', 'fatalities',
+                                'prediction_label', 'confidence', 'prob_taliban',
+                                'prob_isis_k'] if probabilities is not None else \
+                    ['event_id_cnty', 'event_date', 'location', 'fatalities', 'prediction_label']
+
+                st.dataframe(
+                    results_df[display_cols],
+                    use_container_width=True,
+                    height=400
+                )
+
+                # Show sample predictions with notes
+                with st.expander(" View Sample Predictions with Event Descriptions"):
+                    sample_size = min(10, len(results_df))
+                    sample_df = results_df[['event_id_cnty', 'event_date', 'location', 'notes',
+                                            'prediction_label', 'confidence']].head(sample_size)
+
+                    for idx, row in sample_df.iterrows():
+                        st.markdown(f"**{row['event_id_cnty']}** - {row['event_date']} - {row['location']}")
+                        st.write(f"*{row['notes'][:200]}...*")
+                        st.markdown(
+                            f"**Prediction:** {row['prediction_label']} ({row['confidence'] * 100:.1f}% confidence)")
+                        st.divider()
+
+                # Download results
+                csv = results_df.to_csv(index=False)
+                st.download_button(
+                    label=" Download Full Results as CSV",
+                    data=csv,
+                    file_name=f"predictions_{model_type.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+
+            except Exception as e:
+                st.error(f" Error during prediction: {str(e)}")
+                st.exception(e)
 
 
 if __name__ == "__main__":
