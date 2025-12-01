@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import warnings
 import re
+import joblib
 
 warnings.filterwarnings('ignore')
 
@@ -319,8 +320,13 @@ def load_bert_hybrid_model(model_dir):
     if pathlib.Path(scaler_path).exists():
         try:
             # Try normal loading first
-            with open(scaler_path, 'rb') as f:
-                scaler = pickle.load(f)
+            try:
+                scaler = joblib.load(scaler_path)
+                st.success("✅ Feature scaler loaded successfully")
+            except Exception as e:
+                st.error(f"❌ Could not load scaler from {scaler_path}")
+                st.error(f"Error: {str(e)}")
+                scaler = None
             st.success("✅ Feature scaler loaded successfully")
         except Exception as e:
             # If that fails, try with different encoding (Python 2/3 compatibility)
