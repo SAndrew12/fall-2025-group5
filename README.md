@@ -59,7 +59,6 @@ fall-2025-group5/
 │
 └── 📁 src/                                     # Main source code directory
     ├── 🐍 main.py                              # Main pipeline orchestrator with CLI
-    ├── 🐍 main_experiments.py                  # Experimental pipeline runner
     ├── 🐍 data_loader.py                       # ACLED data loading and preprocessing
     ├── 🐍 feature_eng.py                       # Feature engineering (text, spatiotemporal, operational)
     ├── 🐍 train_test_split.py                  # Train/validation/test split logic
@@ -67,19 +66,12 @@ fall-2025-group5/
     ├── 🐍 models.py                            # Classical ML models (RF, XGBoost, MLP)
     ├── 🐍 non_classical.py                     # BERT-based classifier
     ├── 🐍 feature_fusion.py                    # BERT + manual features fusion model
-    ├── 🐍 feature_fusion_experiments.py        # Feature fusion experimentation
-    ├── 🐍 mislabed_data_exp.py                 # Mislabeled data experiments
-    ├── 🐍 unattrib.py                          # Unattributed attack analysis
     ├── 🐍 vis.py                               # Visualization utilities
     ├── 🐍 xai_explanations.py                  # Explainable AI (SHAP, LIME)
     ├── 🐍 save_trained_models.py               # Model persistence utilities
-    ├── 🐍 experiment_runner.py                 # Experiment execution script
     │
     ├── 📁 data/
     │   └── 📊 ACLED Data_2025-09-11.csv        # Primary ACLED dataset
-    │
-    ├── 📁 experiment_results/                  # Experimental training results
-    │   ├── Results from extesntive Feature Fusion testing...
     │
     ├── 📁 results/                             # Model training results
     │   ├── Results by model...
