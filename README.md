@@ -27,28 +27,59 @@ This project develops supervised machine learning models to classify unattribute
 ##  Repository Structure
 
 ```
-.
-├── main.py                          # Main pipeline orchestrator with CLI
-├── data_loader.py                   # ACLED data loading and preprocessing
-├── feature_eng.py                   # Feature engineering (text, spatiotemporal, operational)
-├── train_test_split.py              # Train/validation/test split logic
-├── under_over.py                    # Imbalance handling (undersampling/oversampling)
-├── models.py                        # Classical ML models (RF, XGBoost, MLP)
-├── non_classical.py                 # BERT-based classifier
-├── feature_fusion.py                # BERT + manual features fusion model
-├── vis.py                           # Visualization utilities
-├── xai_explanations.py              # Explainable AI (SHAP, LIME)
-├── save_trained_models.py           # Model persistence utilities
-├── data/
-│   └── acled_afghanistan_2015_2021.csv  # Primary dataset
-├── saved_models/                    # Trained model artifacts
-│   ├── classical/                   # Random Forest, XGBoost, MLP
-│   ├── bert/                        # BERT model
-│   └── feature_fusion/              # Feature fusion model + scaler
-├── visualizations/                  # Generated plots and figures
-├── xai_explanations/                # XAI outputs (SHAP plots, LIME reports)
-├── requirements.txt                 # Python dependencies
-└── README.md                        # This file
+fall-2025-group5/
+│
+├── 📝 README.md
+├── 📄 requirements.txt
+├── 📄 project_structure.txt
+│
+├── 📁 demo/
+│   ├── 🐍 demo.py
+│   ├── 🐍 text_data_processing.py
+│   └── 📊 unattributed_attacks_processed.csv
+│
+├── 📁 presenation/
+│   └── presentation
+│
+├── 📁 reports/
+│   └── 📄 final_paper_davanzo.docx
+│
+├── 📁 research_paper/
+│   └── 📄 final_report_davanzo.docx
+│
+└── 📁 src/                                     # Main source code directory
+    ├── 🐍 main.py                              # Main pipeline orchestrator with CLI
+    ├── 🐍 main_experiments.py                  # Experimental pipeline runner
+    ├── 🐍 data_loader.py                       # ACLED data loading and preprocessing
+    ├── 🐍 feature_eng.py                       # Feature engineering (text, spatiotemporal, operational)
+    ├── 🐍 train_test_split.py                  # Train/validation/test split logic
+    ├── 🐍 under_over.py                        # Imbalance handling (undersampling/oversampling)
+    ├── 🐍 models.py                            # Classical ML models (RF, XGBoost, MLP)
+    ├── 🐍 non_classical.py                     # BERT-based classifier
+    ├── 🐍 feature_fusion.py                    # BERT + manual features fusion model
+    ├── 🐍 feature_fusion_experiments.py        # Feature fusion experimentation
+    ├── 🐍 mislabed_data_exp.py                 # Mislabeled data experiments
+    ├── 🐍 unattrib.py                          # Unattributed attack analysis
+    ├── 🐍 vis.py                               # Visualization utilities
+    ├── 🐍 xai_explanations.py                  # Explainable AI (SHAP, LIME)
+    ├── 🐍 save_trained_models.py               # Model persistence utilities
+    ├── 🐍 experiment_runner.py                 # Experiment execution script
+    │
+    ├── 📁 data/
+    │   └── 📊 ACLED Data_2025-09-11.csv        # Primary ACLED dataset
+    │
+    ├── 📁 experiment_results/                  # Experimental training results
+    │   ├── Results from extesntive Feature Fusion testing...
+    │
+    ├── 📁 results/                             # Model training results
+    │   ├── Results by model...
+    │
+    ├── 📁 visualizations/                      # Generated plots and figures
+    │   ├── visualiations...
+    │
+    └── 📁 xai_explanations/                    # Explainable AI outputs
+        ├── XAI outputs...
+
 ```
 
 ---
@@ -57,26 +88,84 @@ This project develops supervised machine learning models to classify unattribute
 
 ### Installation
 
+#### Prerequisites
+- **Python 3.8+** (Python 3.9 or 3.10 recommended)
+- **pip** (Python package installer)
+- **Git** (for cloning repository)
+- **CUDA** (optional, for GPU acceleration with PyTorch)
+
+#### Step-by-Step Setup
+
 1. **Clone the repository**
 ```bash
-git clone repo link
+git clone <repository-url>
 cd Capstone
 ```
 
-2. **Set up Python environment** (Python 3.8+ required)
+2. **Set up Python virtual environment** (recommended)
 ```bash
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
 
-# make requirements
+# On Windows:
+venv\Scripts\activate
+```
+
+3. **Install dependencies**
+```bash
+# Upgrade pip to latest version
+pip install --upgrade pip
+
+# Install all required packages
 pip install -r requirements.txt
 ```
 
-3. **Prepare data**
+**Note**: Installation may take 5-10 minutes depending on your internet connection, as it downloads PyTorch, transformers, and other large packages.
+
+#### Troubleshooting Installation
+
+**If you encounter PyTorch installation issues:**
+```bash
+# For CPU-only installation (no GPU):
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# For CUDA 11.8 (if you have NVIDIA GPU):
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# Then install remaining requirements
+pip install -r requirements.txt
+```
+
+**If you encounter memory issues during installation:**
+```bash
+# Install packages one at a time
+pip install numpy pandas scikit-learn
+pip install torch transformers sentence-transformers
+pip install matplotlib seaborn shap lime imbalanced-learn
+```
+
+**Verify installation:**
+```bash
+# Test imports
+python -c "import torch; import transformers; import sklearn; print('All core packages imported successfully!')"
+
+# Check if GPU is available (optional)
+python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}')"
+```
+
+4. **Prepare data**
 Ensure `data/acled_afghanistan_2015_2021.csv` is in the data directory.
+```bash
+# Create data directory if it doesn't exist
+mkdir -p data
+
+# Place your ACLED data file in the data/ directory
+# Expected path: data/acled_afghanistan_2015_2021.csv
+```
 
 ### Running the Pipeline
 
@@ -264,13 +353,37 @@ When `--xai` flag is enabled:
 ##  Technical Details
 
 ### Dependencies
-- **Core**: pandas, numpy, scikit-learn
-- **Deep Learning**: torch, transformers (Hugging Face)
-- **XAI**: shap, lime
-- **Visualization**: matplotlib, seaborn
-- **NLP**: sentence-transformers (for classical models)
 
-See `requirements.txt` for complete list.
+The project requires Python 3.8+ and the following packages (all specified in `requirements.txt`):
+
+#### Core Data Science
+- **numpy** (>=1.24.0): Numerical computing
+- **pandas** (>=2.0.0): Data manipulation and analysis
+- **scikit-learn** (>=1.3.0): Classical ML algorithms and evaluation metrics
+
+#### Deep Learning
+- **torch** (>=2.0.0): PyTorch deep learning framework
+- **transformers** (>=4.30.0): Hugging Face transformers (BERT)
+- **sentence-transformers** (>=2.2.0): Sentence embeddings for classical models
+
+#### Imbalanced Learning
+- **imbalanced-learn** (>=0.11.0): Undersampling and oversampling techniques
+
+#### Explainable AI
+- **shap** (>=0.42.0): SHapley Additive exPlanations
+- **lime** (>=0.2.0): Local Interpretable Model-agnostic Explanations
+
+#### Visualization
+- **matplotlib** (>=3.7.0): Plotting and visualization
+- **seaborn** (>=0.12.0): Statistical data visualization
+
+#### Utilities
+- **tqdm** (>=4.65.0): Progress bars
+- **joblib** (>=1.3.0): Model serialization and parallel processing
+
+**Installation**: See the [Installation](#installation) section for detailed setup instructions.
+
+**Full list**: See `requirements.txt` for complete package list with version constraints.
 
 ### Configuration
 Model hyperparameters are defined in `main.py`:
@@ -352,13 +465,13 @@ If you use this work, please cite:
 
 ---
 
-## 📄 License
+##  License
 
 This project uses ACLED data subject to their terms of use. Academic and non-commercial use only. Please review ACLED's data access policy before use.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **ACLED**: For providing comprehensive conflict event data
 - **Hugging Face**: For transformers library and pre-trained BERT models
